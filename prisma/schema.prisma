@@ -1,0 +1,26 @@
+// Prospect Agent — single-table data model for v1.
+// Resist normalizing this. One company in, one drafted opener out.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  // Pooled connection (Supabase: port 6543, pgbouncer) used at runtime.
+  url       = env("DATABASE_URL")
+  // Direct connection (Supabase: port 5432) used by `prisma migrate`.
+  directUrl = env("DIRECT_URL")
+}
+
+model Prospect {
+  id           String   @id @default(cuid())
+  companyName  String
+  website      String?
+  signal       String // the one fact we found
+  signalSource String? // URL where we found it, for verification
+  targetRole   String
+  opener       String
+  status       String   @default("new") // new | contacted | replied
+  createdAt    DateTime @default(now())
+}
