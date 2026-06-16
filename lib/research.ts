@@ -38,6 +38,14 @@ marketing. Hard rules:
 - Don't pitch a product. Earn the reply first.
 - Never invent a fact. If search turns up nothing specific and recent, say so
   in the signal field and write a plainer but still human opener.
+- signalSource must be the direct URL of the specific article or press release
+  where the fact appears. A URL containing /news, /newsroom, /press, or pointing
+  to any index or listing page is a failure — return "" instead. Only return a
+  URL if it links to the exact page that reports the fact.
+- Build the opener on the single signal only. Do not introduce additional
+  facts, context, or claims that the signal doesn't explicitly cover.
+- Never ask for a meeting, call, or "quick conversation." End on one question
+  about their situation, not about fit or next steps.
 
 Return ONLY a JSON object, with no other text before or after it:
 {
