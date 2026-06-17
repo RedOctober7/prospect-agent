@@ -1,7 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import DraftForm from "./draft-form";
 
-// Read fresh from the database on every load; never statically cache.
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
@@ -19,13 +18,19 @@ export default async function Home() {
   });
 
   return (
-    <main className="mx-auto max-w-5xl px-6 py-12">
-      <h1 className="text-2xl font-semibold">Prospect Agent</h1>
-      <p className="mt-2 text-gray-600">
-        Enter a company and website to research one real signal and draft a cold
-        opener.
-      </p>
-      <div className="mt-8">
+    <main className="min-h-screen bg-[#0f0f12]">
+      <div className="mx-auto max-w-3xl px-6 py-12">
+        <header className="mb-10">
+          <div className="flex items-center gap-2.5">
+            <div className="h-2 w-2 rounded-full bg-blue-500" />
+            <h1 className="text-base font-semibold tracking-tight text-white">
+              Prospect Agent
+            </h1>
+          </div>
+          <p className="mt-1.5 pl-[18px] text-sm text-zinc-600">
+            Research a company and draft a cold opener from one real signal.
+          </p>
+        </header>
         <DraftForm initial={prospects} />
       </div>
     </main>
