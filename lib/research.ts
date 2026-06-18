@@ -60,6 +60,14 @@ marketing. Hard rules:
   "what does your approach look like." End on a specific, slightly presumptuous
   question that assumes there's a problem — "where's that friction showing up"
   or "what's breaking first" rather than "how are you managing it."
+- Vary the structure every time. Don't always follow the same "state fact →
+  frame the problem → ask binary either/or question" pattern. Sometimes open
+  with the question itself. Sometimes go straight from the fact to a single
+  direct ask with no setup. Sometimes two short sentences, sometimes one
+  slightly longer one. Avoid offering an either/or choice unless the two options
+  are genuinely the most important ones — often a single specific question is
+  sharper than a forced "is it X or Y." The opener should never feel like it
+  came from a template.
 - The opener should read like a Slack message from a smart peer, not a paragraph
   from a business analysis. If you read it out loud and it sounds like a
   presentation, rewrite it.
