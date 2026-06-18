@@ -138,3 +138,109 @@ export async function researchAndDraft(
 
   return JSON.parse(cleaned.slice(first, last + 1)) as ProspectDraft;
 }
+
+const SIGNAL_SYSTEM = `You research a company and score the quality of their best recent signal for cold outreach.
+
+Process:
+1. Use web search to find ONE specific, recent, verifiable event: a funding round,
+   exec hire or departure, layoffs or restructuring, major expansion, new product
+   line, notable partnership, or job postings that signal a priority shift.
+   Prefer the last 3-6 months.
+2. Pick the role most likely to care about a sales rep's outreach.
+3. Score the signal on three dimensions. Be stingy — use the full 1-5 range on each.
+
+RECENCY (1-5) — how fresh is the event?
+  5 = within the last month
+  4 = 1-2 months ago
+  3 = last quarter (2-3 months ago)
+  2 = 3-6 months ago
+  1 = older than 6 months, or undated
+
+TRIGGER STRENGTH (1-5) — how strong a buying signal is this?
+  5 = unambiguous trigger: funding, CEO/exec change, layoffs/restructuring,
+      major market expansion, new product line launch
+  4 = strong: significant named hire, major partnership, market entry
+  3 = moderate: minor partnership, mid-level hire, product update
+  2 = weak: general PR, minor announcement, nothing actionable implied
+  1 = no trigger: generic trend mention or nothing found
+
+SPECIFICITY (1-5) — how concrete and verifiable is the event?
+  5 = named event with a date and a direct verifiable source URL
+  4 = real and specific, minor detail missing
+  3 = real but vague — no date or only partial information
+  2 = implied or inferred, not directly stated
+  1 = general trend or common knowledge, no specific event
+
+Total = Recency + Trigger Strength + Specificity (max 15)
+
+CALIBRATION — be stingy. Most signals are mediocre. Use the full range.
+Anchors:
+  13-15 = recent unambiguous trigger, act today
+  10-12 = strong signal, worth prioritizing this week
+  7-9   = worth a look, not urgent
+  4-6   = weak signal, no real reason to reach out now
+  3     = nothing actionable found
+
+Clustering everything at 10+ makes ranking useless. A score of 5 is valid and useful.
+
+signalSource must be the direct URL of the specific article or press release.
+A URL pointing to any index, listing, or homepage is a failure — return "" instead.
+
+Return ONLY a JSON object, no other text:
+{
+  "companyName": "...",
+  "signal": "the one fact found, one sentence",
+  "signalSource": "direct URL or empty string",
+  "targetRole": "...",
+  "recency": 3,
+  "triggerStrength": 4,
+  "specificity": 3,
+  "total": 10,
+  "scoreReason": "one sentence explaining why this total is right"
+}`;
+
+export type SignalDraft = {
+  companyName: string;
+  signal: string;
+  signalSource: string;
+  targetRole: string;
+  recency: number;
+  triggerStrength: number;
+  specificity: number;
+  total: number;
+  scoreReason: string;
+};
+
+export async function researchSignal(
+  company: string,
+  website: string
+): Promise<SignalDraft> {
+  const msg = await getClient().messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: 1000,
+    system: SIGNAL_SYSTEM,
+    messages: [
+      {
+        role: "user",
+        content: `Company: ${company}\nWebsite: ${website}\n\nResearch this company and return the JSON object described in your instructions.`,
+      },
+    ],
+    tools: [
+      { type: "web_search_20250305", name: "web_search", max_uses: 3 },
+    ],
+  });
+
+  const text = msg.content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("\n");
+
+  const cleaned = text.replace(/```json|```/g, "");
+  const first = cleaned.indexOf("{");
+  const last = cleaned.lastIndexOf("}");
+  if (first === -1 || last === -1 || last <= first) {
+    throw new Error(`No JSON found in model response. Raw text was:\n${text}`);
+  }
+
+  return JSON.parse(cleaned.slice(first, last + 1)) as SignalDraft;
+}

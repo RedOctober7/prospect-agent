@@ -17,6 +17,50 @@ type BatchEntry =
   | { id: string; status: "loading"; company: string; website: string }
   | { id: string; status: "error"; company: string; website: string; message: string };
 
+type SignalResult = {
+  id: string;
+  companyName: string;
+  signal: string;
+  signalSource: string;
+  targetRole: string;
+  recency: number;
+  triggerStrength: number;
+  specificity: number;
+  total: number;
+  scoreReason: string;
+};
+
+type SignalEntry =
+  | { id: string; status: "pending"; company: string; website: string }
+  | { id: string; status: "loading"; company: string; website: string }
+  | { id: string; status: "error"; company: string; website: string; message: string };
+
+function escapeCell(val: string | number | null | undefined): string {
+  const s = String(val ?? "");
+  return `"${s.replace(/"/g, '""')}"`;
+}
+
+function downloadCsv(filename: string, headers: string[], rowData: (string | number | null | undefined)[][]) {
+  const lines = [headers, ...rowData]
+    .map((row) => row.map(escapeCell).join(","))
+    .join("\r\n");
+  const blob = new Blob([lines], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function scoreColor(total: number): string {
+  if (total >= 13) return "text-emerald-400";
+  if (total >= 10) return "text-green-400";
+  if (total >= 7) return "text-yellow-400";
+  if (total >= 4) return "text-orange-400";
+  return "text-red-400";
+}
+
 function CopyIcon() {
   return (
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -54,20 +98,34 @@ const btnPrimary =
 
 const label = "text-[10px] font-semibold uppercase tracking-widest text-zinc-600";
 
-export default function DraftForm({ initial }: { initial: ProspectRow[] }) {
-  const [mode, setMode] = useState<"single" | "batch">("single");
+const thClass = "py-2.5 pr-6 text-[10px] font-semibold uppercase tracking-widest text-zinc-600 text-left";
+const tdClass = "py-3 pr-6 align-top text-sm";
 
+export default function DraftForm({ initial }: { initial: ProspectRow[] }) {
+  const [mode, setMode] = useState<"single" | "batch" | "signals">("single");
+
+  // Single mode
   const [company, setCompany] = useState("");
   const [website, setWebsite] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Batch mode
   const [batchText, setBatchText] = useState("");
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchQueue, setBatchQueue] = useState<BatchEntry[]>([]);
   const [batchTotal, setBatchTotal] = useState(0);
   const [batchDone, setBatchDone] = useState(0);
 
+  // Signals mode
+  const [signalText, setSignalText] = useState("");
+  const [signalRunning, setSignalRunning] = useState(false);
+  const [signalQueue, setSignalQueue] = useState<SignalEntry[]>([]);
+  const [signalResults, setSignalResults] = useState<SignalResult[]>([]);
+  const [signalTotal, setSignalTotal] = useState(0);
+  const [signalDone, setSignalDone] = useState(0);
+
+  // Shared
   const [rows, setRows] = useState<ProspectRow[]>(initial);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
@@ -96,10 +154,7 @@ export default function DraftForm({ initial }: { initial: ProspectRow[] }) {
 
   async function handleBatchRun() {
     if (batchRunning) return;
-    const lines = batchText
-      .split("\n")
-      .map((l) => l.trim())
-      .filter(Boolean);
+    const lines = batchText.split("\n").map((l) => l.trim()).filter(Boolean);
     if (lines.length === 0) return;
 
     const entries: BatchEntry[] = lines.map((line, i) => {
@@ -122,7 +177,6 @@ export default function DraftForm({ initial }: { initial: ProspectRow[] }) {
             : e
         )
       );
-
       try {
         const res = await fetch("/api/draft", {
           method: "POST",
@@ -146,8 +200,59 @@ export default function DraftForm({ initial }: { initial: ProspectRow[] }) {
         setBatchDone((n) => n + 1);
       }
     }
-
     setBatchRunning(false);
+  }
+
+  async function handleSignalRun() {
+    if (signalRunning) return;
+    const lines = signalText.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (lines.length === 0) return;
+
+    const entries: SignalEntry[] = lines.map((line, i) => {
+      const commaIdx = line.indexOf(",");
+      const co = commaIdx >= 0 ? line.slice(0, commaIdx).trim() : line.trim();
+      const site = commaIdx >= 0 ? line.slice(commaIdx + 1).trim() : "";
+      return { id: `signal-${Date.now()}-${i}`, status: "pending", company: co, website: site };
+    });
+
+    setSignalQueue(entries);
+    setSignalResults([]);
+    setSignalTotal(entries.length);
+    setSignalDone(0);
+    setSignalRunning(true);
+
+    for (const entry of entries) {
+      setSignalQueue((prev) =>
+        prev.map((e) =>
+          e.id === entry.id
+            ? { id: entry.id, status: "loading", company: entry.company, website: entry.website }
+            : e
+        )
+      );
+      try {
+        const res = await fetch("/api/signal", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ company: entry.company, website: entry.website }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Research failed.");
+        setSignalResults((prev) => [...prev, { id: entry.id, ...data } as SignalResult]);
+        setSignalQueue((prev) => prev.filter((e) => e.id !== entry.id));
+        setSignalDone((n) => n + 1);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Research failed.";
+        setSignalQueue((prev) =>
+          prev.map((e) =>
+            e.id === entry.id
+              ? { id: entry.id, status: "error", company: entry.company, website: entry.website, message }
+              : e
+          )
+        );
+        setSignalDone((n) => n + 1);
+      }
+    }
+    setSignalRunning(false);
   }
 
   async function copyOpener(row: ProspectRow) {
@@ -160,11 +265,34 @@ export default function DraftForm({ initial }: { initial: ProspectRow[] }) {
     }
   }
 
+  const sortedSignals = [...signalResults].sort((a, b) => b.total - a.total);
+
+  function exportProspectsCsv() {
+    const date = new Date().toISOString().slice(0, 10);
+    downloadCsv(
+      `prospects-${date}.csv`,
+      ["Company", "Signal", "Source", "Target Role", "Opener"],
+      rows.map((r) => [r.companyName, r.signal, r.signalSource ?? "", r.targetRole, r.opener])
+    );
+  }
+
+  function exportSignalsCsv() {
+    const date = new Date().toISOString().slice(0, 10);
+    downloadCsv(
+      `prospects-${date}.csv`,
+      ["Company", "Total", "Recency", "Trigger", "Specificity", "Signal", "Source", "Target Role", "Score Reason"],
+      sortedSignals.map((r) => [
+        r.companyName, r.total, r.recency, r.triggerStrength, r.specificity,
+        r.signal, r.signalSource, r.targetRole, r.scoreReason,
+      ])
+    );
+  }
+
   return (
     <div>
       {/* Mode tabs */}
       <div className="mb-7 flex border-b border-[#27272a]">
-        {(["single", "batch"] as const).map((m) => (
+        {(["single", "batch", "signals"] as const).map((m) => (
           <button
             key={m}
             onClick={() => setMode(m)}
@@ -180,7 +308,8 @@ export default function DraftForm({ initial }: { initial: ProspectRow[] }) {
         ))}
       </div>
 
-      {mode === "single" ? (
+      {/* ── Single ── */}
+      {mode === "single" && (
         <>
           <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-3">
             <label className="flex flex-col gap-1.5">
@@ -211,7 +340,10 @@ export default function DraftForm({ initial }: { initial: ProspectRow[] }) {
             </p>
           )}
         </>
-      ) : (
+      )}
+
+      {/* ── Batch ── */}
+      {mode === "batch" && (
         <div className="flex flex-col gap-3">
           <label className="flex flex-col gap-1.5">
             <span className={label}>
@@ -241,115 +373,219 @@ export default function DraftForm({ initial }: { initial: ProspectRow[] }) {
         </div>
       )}
 
-      {/* Cards */}
-      <div className="mt-10 flex flex-col gap-3">
-        {/* Batch queue state cards */}
-        {batchQueue.map((entry) => {
-          const base =
-            "relative overflow-hidden rounded-xl border border-[#27272a] bg-[#18181b] p-6 " +
-            "shadow-[0_2px_16px_rgba(0,0,0,0.5)] animate-fade-slide-in";
-
-          if (entry.status === "loading") {
-            return (
-              <div key={entry.id} className={base}>
-                <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-gradient-to-b from-indigo-500 to-violet-500" />
-                <p className="text-sm font-bold tracking-tight text-white">{entry.company}</p>
-                <p className="mt-2 text-xs italic text-[#a1a1aa]">Drafting…</p>
-              </div>
-            );
-          }
-          if (entry.status === "error") {
-            return (
-              <div key={entry.id} className={base}>
-                <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-gradient-to-b from-rose-500 to-red-600" />
-                <p className="text-sm font-bold tracking-tight text-white">{entry.company}</p>
-                <p className="mt-2 text-xs text-red-400">{entry.message}</p>
-              </div>
-            );
-          }
-          return (
-            <div key={entry.id} className={base}>
-              <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-zinc-700" />
-              <p className="text-sm font-bold tracking-tight text-zinc-400">{entry.company}</p>
-              <p className="mt-2 text-xs text-zinc-600">Queued</p>
-            </div>
-          );
-        })}
-
-        {/* Empty state */}
-        {rows.length === 0 && batchQueue.length === 0 && (
-          <div className="flex flex-col items-center gap-3 py-20 text-zinc-700">
-            <EmptyIcon />
-            <p className="text-sm">No prospects yet — research your first company above.</p>
+      {/* ── Signals ── */}
+      {mode === "signals" && (
+        <div className="flex flex-col gap-3">
+          <label className="flex flex-col gap-1.5">
+            <span className={label}>
+              One per line —{" "}
+              <span className="font-mono normal-case tracking-normal text-[#a1a1aa]">
+                Company,website.com
+              </span>
+            </span>
+            <textarea
+              value={signalText}
+              onChange={(e) => setSignalText(e.target.value)}
+              placeholder={"ASML,asml.com\nNotion,notion.so\nPipedrive,pipedrive.com"}
+              rows={6}
+              disabled={signalRunning}
+              className={`max-w-md font-mono ${inputClass} disabled:opacity-50`}
+            />
+          </label>
+          <div>
+            <button
+              onClick={handleSignalRun}
+              disabled={signalRunning || !signalText.trim()}
+              className={btnPrimary}
+            >
+              {signalRunning ? `Researching… (${signalDone}/${signalTotal})` : "Run signals"}
+            </button>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Completed prospect cards */}
-        {rows.map((row) => (
-          <div
-            key={row.id}
-            className="relative overflow-hidden rounded-xl border border-[#27272a] bg-[#18181b] p-6 shadow-[0_2px_16px_rgba(0,0,0,0.5)] hover:border-[#3f3f46] transition-all duration-200 animate-fade-slide-in"
-          >
-            <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-gradient-to-b from-indigo-500 to-violet-500" />
-
-            {/* Metadata */}
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-3">
-              <span className="text-base font-bold tracking-tight text-white">{row.companyName}</span>
-              <span className="text-zinc-600">·</span>
-              <span className="text-xs text-[#a1a1aa]">{row.targetRole}</span>
-              {row.signalSource && (
-                <>
-                  <span className="text-zinc-600">·</span>
-                  <a
-                    href={row.signalSource}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-indigo-400 hover:text-indigo-300 hover:underline transition-all duration-200"
-                  >
-                    source ↗
-                  </a>
-                </>
-              )}
-            </div>
-
-            {/* Signal */}
-            <div className="mb-4">
-              <p className={`${label} mb-1.5`}>Signal</p>
-              <p className="text-xs leading-relaxed text-[#a1a1aa]">{row.signal}</p>
-            </div>
-
-            {/* Opener container */}
-            <div className="rounded-lg bg-[#1e1e22] px-4 py-4">
-              <p className={`${label} mb-2`}>Opener</p>
-              <p className="text-sm leading-relaxed text-[#fafafa]">{row.opener}</p>
-            </div>
-
-            {/* Copy */}
-            <div className="mt-4 flex justify-end">
-              <button
-                onClick={() => copyOpener(row)}
-                className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium active:scale-95 transition-all duration-200 ${
-                  copiedId === row.id
-                    ? "border-emerald-700/50 bg-emerald-950/30 text-emerald-400"
-                    : "border-[#27272a] text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white"
-                }`}
-              >
-                {copiedId === row.id ? (
-                  <>
-                    <CheckIcon />
-                    Copied!
-                  </>
-                ) : (
-                  <>
-                    <CopyIcon />
-                    Copy
-                  </>
-                )}
+      {/* ── Single / Batch result cards ── */}
+      {(mode === "single" || mode === "batch") && (
+        <div className="mt-10 flex flex-col gap-3">
+          {rows.length > 0 && (
+            <div className="flex justify-end mb-1">
+              <button onClick={exportProspectsCsv} className="flex items-center gap-1.5 rounded-md border border-[#27272a] px-3 py-1.5 text-xs text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white transition-all duration-200">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                Export CSV
               </button>
             </div>
-          </div>
-        ))}
-      </div>
+          )}
+          {batchQueue.map((entry) => {
+            const base =
+              "relative overflow-hidden rounded-xl border border-[#27272a] bg-[#18181b] p-6 " +
+              "shadow-[0_2px_16px_rgba(0,0,0,0.5)] animate-fade-slide-in";
+            if (entry.status === "loading") {
+              return (
+                <div key={entry.id} className={base}>
+                  <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-gradient-to-b from-indigo-500 to-violet-500" />
+                  <p className="text-sm font-bold tracking-tight text-white">{entry.company}</p>
+                  <p className="mt-2 text-xs italic text-[#a1a1aa]">Drafting…</p>
+                </div>
+              );
+            }
+            if (entry.status === "error") {
+              return (
+                <div key={entry.id} className={base}>
+                  <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-gradient-to-b from-rose-500 to-red-600" />
+                  <p className="text-sm font-bold tracking-tight text-white">{entry.company}</p>
+                  <p className="mt-2 text-xs text-red-400">{entry.message}</p>
+                </div>
+              );
+            }
+            return (
+              <div key={entry.id} className={base}>
+                <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-zinc-700" />
+                <p className="text-sm font-bold tracking-tight text-zinc-400">{entry.company}</p>
+                <p className="mt-2 text-xs text-zinc-600">Queued</p>
+              </div>
+            );
+          })}
+
+          {rows.length === 0 && batchQueue.length === 0 && (
+            <div className="flex flex-col items-center gap-3 py-20 text-zinc-700">
+              <EmptyIcon />
+              <p className="text-sm">No prospects yet — research your first company above.</p>
+            </div>
+          )}
+
+          {rows.map((row) => (
+            <div
+              key={row.id}
+              className="relative overflow-hidden rounded-xl border border-[#27272a] bg-[#18181b] p-6 shadow-[0_2px_16px_rgba(0,0,0,0.5)] hover:border-[#3f3f46] transition-all duration-200 animate-fade-slide-in"
+            >
+              <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-gradient-to-b from-indigo-500 to-violet-500" />
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-3">
+                <span className="text-base font-bold tracking-tight text-white">{row.companyName}</span>
+                <span className="text-zinc-600">·</span>
+                <span className="text-xs text-[#a1a1aa]">{row.targetRole}</span>
+                {row.signalSource && (
+                  <>
+                    <span className="text-zinc-600">·</span>
+                    <a href={row.signalSource} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-400 hover:text-indigo-300 hover:underline transition-all duration-200">
+                      source ↗
+                    </a>
+                  </>
+                )}
+              </div>
+              <div className="mb-4">
+                <p className={`${label} mb-1.5`}>Signal</p>
+                <p className="text-xs leading-relaxed text-[#a1a1aa]">{row.signal}</p>
+              </div>
+              <div className="rounded-lg bg-[#1e1e22] px-4 py-4">
+                <p className={`${label} mb-2`}>Opener</p>
+                <p className="text-sm leading-relaxed text-[#fafafa]">{row.opener}</p>
+              </div>
+              <div className="mt-4 flex justify-end">
+                <button
+                  onClick={() => copyOpener(row)}
+                  className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium active:scale-95 transition-all duration-200 ${
+                    copiedId === row.id
+                      ? "border-emerald-700/50 bg-emerald-950/30 text-emerald-400"
+                      : "border-[#27272a] text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white"
+                  }`}
+                >
+                  {copiedId === row.id ? <><CheckIcon />Copied!</> : <><CopyIcon />Copy</>}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Signals results table ── */}
+      {mode === "signals" && (
+        <div className="mt-8">
+          {signalResults.length > 0 && (
+            <div className="flex justify-end mb-3">
+              <button onClick={exportSignalsCsv} className="flex items-center gap-1.5 rounded-md border border-[#27272a] px-3 py-1.5 text-xs text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white transition-all duration-200">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                Export CSV
+              </button>
+            </div>
+          )}
+          {signalQueue.length === 0 && signalResults.length === 0 ? (
+            <div className="flex flex-col items-center gap-3 py-20 text-zinc-700">
+              <EmptyIcon />
+              <p className="text-sm">No signals yet — paste companies above and run.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-[#27272a]">
+              <table className="w-full border-collapse text-left">
+                <thead>
+                  <tr className="border-b border-[#27272a] bg-[#18181b]">
+                    <th className={`${thClass} pl-5`}>Company</th>
+                    <th className={thClass}>Score</th>
+                    <th className={thClass}>Signal</th>
+                    <th className={thClass}>Target role</th>
+                    <th className={thClass}>Source</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {/* In-flight queue entries */}
+                  {signalQueue.map((entry) => (
+                    <tr key={entry.id} className="border-b border-[#27272a] bg-[#0f0f12]">
+                      <td className={`${tdClass} pl-5 font-semibold text-white`}>{entry.company}</td>
+                      {entry.status === "loading" ? (
+                        <td colSpan={4} className={`${tdClass} italic text-[#a1a1aa]`}>Researching…</td>
+                      ) : entry.status === "error" ? (
+                        <td colSpan={4} className={`${tdClass} text-red-400`}>{entry.message}</td>
+                      ) : (
+                        <td colSpan={4} className={`${tdClass} text-zinc-600`}>Queued</td>
+                      )}
+                    </tr>
+                  ))}
+                  {/* Completed results sorted by score descending */}
+                  {sortedSignals.map((result) => (
+                    <tr key={result.id} className="border-b border-[#27272a] bg-[#18181b] hover:bg-[#1e1e22] transition-colors duration-150 animate-fade-slide-in">
+                      <td className={`${tdClass} pl-5 font-semibold text-white`}>{result.companyName}</td>
+                      <td className={tdClass}>
+                        <div className="flex items-baseline gap-2">
+                          <span className={`text-xl font-bold tabular-nums ${scoreColor(result.total)}`}>
+                            {result.total}
+                          </span>
+                          <span className="font-mono text-[10px] text-zinc-600 whitespace-nowrap">
+                            R{result.recency} T{result.triggerStrength} S{result.specificity}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-[10px] leading-snug text-zinc-600 max-w-[160px]">
+                          {result.scoreReason}
+                        </p>
+                      </td>
+                      <td className={`${tdClass} text-[#a1a1aa] max-w-xs`}>
+                        <p className="leading-relaxed">{result.signal}</p>
+                      </td>
+                      <td className={`${tdClass} text-[#a1a1aa] whitespace-nowrap`}>{result.targetRole}</td>
+                      <td className={tdClass}>
+                        {result.signalSource ? (
+                          <a
+                            href={result.signalSource}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-indigo-400 hover:text-indigo-300 hover:underline transition-all duration-200 whitespace-nowrap"
+                          >
+                            source ↗
+                          </a>
+                        ) : (
+                          <span className="text-zinc-700">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
