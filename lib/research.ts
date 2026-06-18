@@ -114,14 +114,16 @@ export async function researchAndDraft(
     .map((b) => b.text)
     .join("\n");
 
-  // Defensive parse: strip code fences, grab the JSON object.
+  // Defensive parse: strip code fences, then slice from the first { to the
+  // last } so any text the model adds before or after the object is ignored.
   const cleaned = text.replace(/```json|```/g, "");
-  const match = cleaned.match(/\{[\s\S]*\}/);
-  if (!match) {
+  const first = cleaned.indexOf("{");
+  const last = cleaned.lastIndexOf("}");
+  if (first === -1 || last === -1 || last <= first) {
     throw new Error(
       `No JSON found in model response. Raw text was:\n${text}`
     );
   }
 
-  return JSON.parse(match[0]) as ProspectDraft;
+  return JSON.parse(cleaned.slice(first, last + 1)) as ProspectDraft;
 }
