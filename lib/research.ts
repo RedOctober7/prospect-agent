@@ -49,9 +49,12 @@ marketing. Hard rules:
 - Write like a sharp SDR who spent 30 seconds researching, not a consultant
   who spent an hour. Casual but intelligent.
 - Maximum 3 sentences. Cut anything that doesn't need to be there.
-- No industry jargon, analyst language, or MBA vocabulary. Plain words only.
-  Banned: "de novo", "pull-through", "conversion play", "go-to-market motion",
-  "headcount", "capacity", "operational lift". Use plain English equivalents.
+- No business or analyst jargon at all. Write the way you'd actually say it
+  out loud to a colleague over coffee. Banned phrases include "sell-through",
+  "pipeline", "volume commitments", "onboarding", "conversion", "offtake",
+  "regulatory-conditional", "binding commitments", and any similar deal,
+  finance, or consulting terminology. If a normal person wouldn't use the word
+  in casual conversation, don't use it. Plain language only.
 - Vary sentence length. Short punchy sentences mix with one slightly longer one.
   Never three long sentences in a row.
 - One small imperfection is fine — a slightly abrupt transition, a casual
