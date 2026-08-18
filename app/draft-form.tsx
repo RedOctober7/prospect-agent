@@ -13,6 +13,26 @@ export type ProspectRow = {
   status: string;
 };
 
+type EditableFields = {
+  companyName: string;
+  website: string;
+  signal: string;
+  signalSource: string;
+  targetRole: string;
+  opener: string;
+};
+
+function toEditableFields(row: ProspectRow): EditableFields {
+  return {
+    companyName: row.companyName,
+    website: row.website ?? "",
+    signal: row.signal,
+    signalSource: row.signalSource ?? "",
+    targetRole: row.targetRole,
+    opener: row.opener,
+  };
+}
+
 const NEXT_STATUS: Record<string, string> = { new: "contacted", contacted: "replied" };
 const STATUS_LABEL: Record<string, string> = { new: "New", contacted: "Contacted", replied: "Replied" };
 const STATUS_DOT: Record<string, string> = { new: "bg-zinc-500", contacted: "bg-amber-400", replied: "bg-emerald-400" };
@@ -154,6 +174,11 @@ export default function DraftForm({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(initialHasMore);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<EditableFields | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -348,6 +373,56 @@ export default function DraftForm({
       if (!res.ok) throw new Error();
     } catch {
       setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, status: row.status } : r)));
+    }
+  }
+
+  function startEdit(row: ProspectRow) {
+    setEditingId(row.id);
+    setEditDraft(toEditableFields(row));
+    setEditError(null);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditDraft(null);
+    setEditError(null);
+  }
+
+  async function saveEdit(id: string) {
+    if (!editDraft) return;
+    if (!editDraft.companyName.trim() || !editDraft.signal.trim() || !editDraft.targetRole.trim() || !editDraft.opener.trim()) {
+      setEditError("Company, signal, target role, and opener can't be empty.");
+      return;
+    }
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      const res = await fetch(`/api/prospects/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editDraft),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Update failed.");
+      setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...data } : r)));
+      setEditingId(null);
+      setEditDraft(null);
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : "Update failed.");
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+  async function deleteRow(row: ProspectRow) {
+    if (!window.confirm(`Delete the draft for ${row.companyName}? This can't be undone.`)) return;
+    setDeletingId(row.id);
+    try {
+      const res = await fetch(`/api/prospects/${row.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      setRows((prev) => prev.filter((r) => r.id !== row.id));
+    } catch {
+      setDeletingId(null);
     }
   }
 
@@ -601,34 +676,119 @@ export default function DraftForm({
                   {STATUS_LABEL[row.status] ?? row.status}
                 </span>
               </div>
-              <div className="mb-4">
-                <p className={`${label} mb-1.5`}>Signal</p>
-                <p className="text-xs leading-relaxed text-[#a1a1aa]">{row.signal}</p>
-              </div>
-              <div className="rounded-lg bg-[#1e1e22] px-4 py-4">
-                <p className={`${label} mb-2`}>Opener</p>
-                <p className="text-sm leading-relaxed text-[#fafafa]">{row.opener}</p>
-              </div>
-              <div className="mt-4 flex justify-end gap-2">
-                {NEXT_STATUS[row.status] && (
-                  <button
-                    onClick={() => advanceStatus(row)}
-                    className="rounded-md border border-[#27272a] px-3 py-1.5 text-xs font-medium text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white active:scale-95 transition-all duration-200"
-                  >
-                    Mark {STATUS_LABEL[NEXT_STATUS[row.status]]}
-                  </button>
-                )}
-                <button
-                  onClick={() => copyOpener(row)}
-                  className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium active:scale-95 transition-all duration-200 ${
-                    copiedId === row.id
-                      ? "border-emerald-700/50 bg-emerald-950/30 text-emerald-400"
-                      : "border-[#27272a] text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white"
-                  }`}
-                >
-                  {copiedId === row.id ? <><CheckIcon />Copied!</> : <><CopyIcon />Copy</>}
-                </button>
-              </div>
+              {editingId === row.id && editDraft ? (
+                <div className="flex flex-col gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="flex flex-col gap-1.5">
+                      <span className={label}>Company name</span>
+                      <input
+                        value={editDraft.companyName}
+                        onChange={(e) => setEditDraft({ ...editDraft, companyName: e.target.value })}
+                        className={inputClass}
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1.5">
+                      <span className={label}>Target role</span>
+                      <input
+                        value={editDraft.targetRole}
+                        onChange={(e) => setEditDraft({ ...editDraft, targetRole: e.target.value })}
+                        className={inputClass}
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1.5">
+                      <span className={label}>Website</span>
+                      <input
+                        value={editDraft.website}
+                        onChange={(e) => setEditDraft({ ...editDraft, website: e.target.value })}
+                        className={inputClass}
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1.5">
+                      <span className={label}>Source URL</span>
+                      <input
+                        value={editDraft.signalSource}
+                        onChange={(e) => setEditDraft({ ...editDraft, signalSource: e.target.value })}
+                        className={inputClass}
+                      />
+                    </label>
+                  </div>
+                  <label className="flex flex-col gap-1.5">
+                    <span className={label}>Signal</span>
+                    <textarea
+                      value={editDraft.signal}
+                      onChange={(e) => setEditDraft({ ...editDraft, signal: e.target.value })}
+                      rows={2}
+                      className={inputClass}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1.5">
+                    <span className={label}>Opener</span>
+                    <textarea
+                      value={editDraft.opener}
+                      onChange={(e) => setEditDraft({ ...editDraft, opener: e.target.value })}
+                      rows={3}
+                      className={inputClass}
+                    />
+                  </label>
+                  {editError && <p className="text-xs text-red-400">{editError}</p>}
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={cancelEdit}
+                      disabled={editSaving}
+                      className="rounded-md border border-[#27272a] px-3 py-1.5 text-xs font-medium text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white disabled:cursor-not-allowed disabled:opacity-40 transition-all duration-200"
+                    >
+                      Cancel
+                    </button>
+                    <button onClick={() => saveEdit(row.id)} disabled={editSaving} className={btnPrimary}>
+                      {editSaving ? "Saving…" : "Save"}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="mb-4">
+                    <p className={`${label} mb-1.5`}>Signal</p>
+                    <p className="text-xs leading-relaxed text-[#a1a1aa]">{row.signal}</p>
+                  </div>
+                  <div className="rounded-lg bg-[#1e1e22] px-4 py-4">
+                    <p className={`${label} mb-2`}>Opener</p>
+                    <p className="text-sm leading-relaxed text-[#fafafa]">{row.opener}</p>
+                  </div>
+                  <div className="mt-4 flex justify-end gap-2">
+                    {NEXT_STATUS[row.status] && (
+                      <button
+                        onClick={() => advanceStatus(row)}
+                        className="rounded-md border border-[#27272a] px-3 py-1.5 text-xs font-medium text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white active:scale-95 transition-all duration-200"
+                      >
+                        Mark {STATUS_LABEL[NEXT_STATUS[row.status]]}
+                      </button>
+                    )}
+                    <button
+                      onClick={() => startEdit(row)}
+                      className="rounded-md border border-[#27272a] px-3 py-1.5 text-xs font-medium text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white active:scale-95 transition-all duration-200"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => deleteRow(row)}
+                      disabled={deletingId === row.id}
+                      className="rounded-md border border-[#27272a] px-3 py-1.5 text-xs font-medium text-[#a1a1aa] hover:border-red-800/60 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40 active:scale-95 transition-all duration-200"
+                    >
+                      {deletingId === row.id ? "Deleting…" : "Delete"}
+                    </button>
+                    <button
+                      onClick={() => copyOpener(row)}
+                      className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium active:scale-95 transition-all duration-200 ${
+                        copiedId === row.id
+                          ? "border-emerald-700/50 bg-emerald-950/30 text-emerald-400"
+                          : "border-[#27272a] text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white"
+                      }`}
+                    >
+                      {copiedId === row.id ? <><CheckIcon />Copied!</> : <><CopyIcon />Copy</>}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           ))}
 
