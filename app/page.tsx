@@ -1,21 +1,17 @@
 import { prisma } from "@/lib/prisma";
+import { PAGE_SIZE, prospectListSelect } from "@/lib/prospects";
 import DraftForm from "./draft-form";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const prospects = await prisma.prospect.findMany({
+  const items = await prisma.prospect.findMany({
     orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      companyName: true,
-      website: true,
-      signal: true,
-      signalSource: true,
-      targetRole: true,
-      opener: true,
-    },
+    take: PAGE_SIZE + 1,
+    select: prospectListSelect,
   });
+  const hasMore = items.length > PAGE_SIZE;
+  const prospects = hasMore ? items.slice(0, PAGE_SIZE) : items;
 
   return (
     <main className="min-h-screen bg-[#0f0f12]">
@@ -31,7 +27,7 @@ export default async function Home() {
             Research a company and draft a cold opener from one real signal.
           </p>
         </header>
-        <DraftForm initial={prospects} />
+        <DraftForm initial={prospects} initialHasMore={hasMore} />
       </div>
     </main>
   );

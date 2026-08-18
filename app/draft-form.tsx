@@ -10,7 +10,12 @@ export type ProspectRow = {
   signalSource: string | null;
   targetRole: string;
   opener: string;
+  status: string;
 };
+
+const NEXT_STATUS: Record<string, string> = { new: "contacted", contacted: "replied" };
+const STATUS_LABEL: Record<string, string> = { new: "New", contacted: "Contacted", replied: "Replied" };
+const STATUS_DOT: Record<string, string> = { new: "bg-zinc-500", contacted: "bg-amber-400", replied: "bg-emerald-400" };
 
 type BatchEntry =
   | { id: string; status: "pending"; company: string; website: string }
@@ -101,7 +106,13 @@ const label = "text-[10px] font-semibold uppercase tracking-widest text-zinc-600
 const thClass = "py-2.5 pr-6 text-[10px] font-semibold uppercase tracking-widest text-zinc-600 text-left";
 const tdClass = "py-3 pr-6 align-top text-sm";
 
-export default function DraftForm({ initial }: { initial: ProspectRow[] }) {
+export default function DraftForm({
+  initial,
+  initialHasMore,
+}: {
+  initial: ProspectRow[];
+  initialHasMore: boolean;
+}) {
   const [mode, setMode] = useState<"single" | "batch" | "signals">("single");
 
   // Single mode
@@ -116,6 +127,7 @@ export default function DraftForm({ initial }: { initial: ProspectRow[] }) {
   const [batchQueue, setBatchQueue] = useState<BatchEntry[]>([]);
   const [batchTotal, setBatchTotal] = useState(0);
   const [batchDone, setBatchDone] = useState(0);
+  const [batchSkipped, setBatchSkipped] = useState(0);
 
   // Signals mode
   const [signalText, setSignalText] = useState("");
@@ -124,10 +136,13 @@ export default function DraftForm({ initial }: { initial: ProspectRow[] }) {
   const [signalResults, setSignalResults] = useState<SignalResult[]>([]);
   const [signalTotal, setSignalTotal] = useState(0);
   const [signalDone, setSignalDone] = useState(0);
+  const [signalSkipped, setSignalSkipped] = useState(0);
 
   // Shared
   const [rows, setRows] = useState<ProspectRow[]>(initial);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(initialHasMore);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -152,107 +167,151 @@ export default function DraftForm({ initial }: { initial: ProspectRow[] }) {
     }
   }
 
-  async function handleBatchRun() {
-    if (batchRunning) return;
-    const lines = batchText.split("\n").map((l) => l.trim()).filter(Boolean);
-    if (lines.length === 0) return;
-
-    const entries: BatchEntry[] = lines.map((line, i) => {
+  function parseBatchLines(text: string): { entries: BatchEntry[]; skipped: number } {
+    const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+    const seen = new Set<string>();
+    const entries: BatchEntry[] = [];
+    let skipped = 0;
+    lines.forEach((line, i) => {
       const commaIdx = line.indexOf(",");
       const co = commaIdx >= 0 ? line.slice(0, commaIdx).trim() : line.trim();
       const site = commaIdx >= 0 ? line.slice(commaIdx + 1).trim() : "";
-      return { id: `batch-${Date.now()}-${i}`, status: "pending", company: co, website: site };
+      const key = co.toLowerCase();
+      if (seen.has(key)) {
+        skipped++;
+        return;
+      }
+      seen.add(key);
+      entries.push({ id: `batch-${Date.now()}-${i}`, status: "pending", company: co, website: site });
     });
+    return { entries, skipped };
+  }
+
+  async function runBatchEntry(entry: BatchEntry) {
+    setBatchQueue((prev) =>
+      prev.map((e) =>
+        e.id === entry.id
+          ? { id: entry.id, status: "loading", company: entry.company, website: entry.website }
+          : e
+      )
+    );
+    try {
+      const res = await fetch("/api/draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ company: entry.company, website: entry.website }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Draft failed.");
+      setRows((prev) => [data as ProspectRow, ...prev]);
+      setBatchQueue((prev) => prev.filter((e) => e.id !== entry.id));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Draft failed.";
+      setBatchQueue((prev) =>
+        prev.map((e) =>
+          e.id === entry.id
+            ? { id: entry.id, status: "error", company: entry.company, website: entry.website, message }
+            : e
+        )
+      );
+    }
+  }
+
+  async function handleBatchRun() {
+    if (batchRunning) return;
+    const { entries, skipped } = parseBatchLines(batchText);
+    if (entries.length === 0) return;
 
     setBatchQueue(entries);
     setBatchTotal(entries.length);
     setBatchDone(0);
+    setBatchSkipped(skipped);
     setBatchRunning(true);
 
     for (const entry of entries) {
-      setBatchQueue((prev) =>
-        prev.map((e) =>
-          e.id === entry.id
-            ? { id: entry.id, status: "loading", company: entry.company, website: entry.website }
-            : e
-        )
-      );
-      try {
-        const res = await fetch("/api/draft", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ company: entry.company, website: entry.website }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "Draft failed.");
-        setRows((prev) => [data as ProspectRow, ...prev]);
-        setBatchQueue((prev) => prev.filter((e) => e.id !== entry.id));
-        setBatchDone((n) => n + 1);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Draft failed.";
-        setBatchQueue((prev) =>
-          prev.map((e) =>
-            e.id === entry.id
-              ? { id: entry.id, status: "error", company: entry.company, website: entry.website, message }
-              : e
-          )
-        );
-        setBatchDone((n) => n + 1);
-      }
+      await runBatchEntry(entry);
+      setBatchDone((n) => n + 1);
     }
     setBatchRunning(false);
   }
 
-  async function handleSignalRun() {
-    if (signalRunning) return;
-    const lines = signalText.split("\n").map((l) => l.trim()).filter(Boolean);
-    if (lines.length === 0) return;
+  async function retryBatchEntry(entry: BatchEntry) {
+    if (batchRunning) return;
+    await runBatchEntry(entry);
+  }
 
-    const entries: SignalEntry[] = lines.map((line, i) => {
+  function parseSignalLines(text: string): { entries: SignalEntry[]; skipped: number } {
+    const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+    const seen = new Set<string>();
+    const entries: SignalEntry[] = [];
+    let skipped = 0;
+    lines.forEach((line, i) => {
       const commaIdx = line.indexOf(",");
       const co = commaIdx >= 0 ? line.slice(0, commaIdx).trim() : line.trim();
       const site = commaIdx >= 0 ? line.slice(commaIdx + 1).trim() : "";
-      return { id: `signal-${Date.now()}-${i}`, status: "pending", company: co, website: site };
+      const key = co.toLowerCase();
+      if (seen.has(key)) {
+        skipped++;
+        return;
+      }
+      seen.add(key);
+      entries.push({ id: `signal-${Date.now()}-${i}`, status: "pending", company: co, website: site });
     });
+    return { entries, skipped };
+  }
+
+  async function runSignalEntry(entry: SignalEntry) {
+    setSignalQueue((prev) =>
+      prev.map((e) =>
+        e.id === entry.id
+          ? { id: entry.id, status: "loading", company: entry.company, website: entry.website }
+          : e
+      )
+    );
+    try {
+      const res = await fetch("/api/signal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ company: entry.company, website: entry.website }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Research failed.");
+      setSignalResults((prev) => [...prev.filter((r) => r.id !== entry.id), { id: entry.id, ...data } as SignalResult]);
+      setSignalQueue((prev) => prev.filter((e) => e.id !== entry.id));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Research failed.";
+      setSignalQueue((prev) =>
+        prev.map((e) =>
+          e.id === entry.id
+            ? { id: entry.id, status: "error", company: entry.company, website: entry.website, message }
+            : e
+        )
+      );
+    }
+  }
+
+  async function handleSignalRun() {
+    if (signalRunning) return;
+    const { entries, skipped } = parseSignalLines(signalText);
+    if (entries.length === 0) return;
 
     setSignalQueue(entries);
     setSignalResults([]);
     setSignalTotal(entries.length);
     setSignalDone(0);
+    setSignalSkipped(skipped);
     setSignalRunning(true);
 
     for (const entry of entries) {
-      setSignalQueue((prev) =>
-        prev.map((e) =>
-          e.id === entry.id
-            ? { id: entry.id, status: "loading", company: entry.company, website: entry.website }
-            : e
-        )
-      );
-      try {
-        const res = await fetch("/api/signal", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ company: entry.company, website: entry.website }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "Research failed.");
-        setSignalResults((prev) => [...prev, { id: entry.id, ...data } as SignalResult]);
-        setSignalQueue((prev) => prev.filter((e) => e.id !== entry.id));
-        setSignalDone((n) => n + 1);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Research failed.";
-        setSignalQueue((prev) =>
-          prev.map((e) =>
-            e.id === entry.id
-              ? { id: entry.id, status: "error", company: entry.company, website: entry.website, message }
-              : e
-          )
-        );
-        setSignalDone((n) => n + 1);
-      }
+      await runSignalEntry(entry);
+      setSignalDone((n) => n + 1);
     }
     setSignalRunning(false);
+  }
+
+  async function retrySignalEntry(entry: SignalEntry) {
+    if (signalRunning) return;
+    await runSignalEntry(entry);
   }
 
   async function copyOpener(row: ProspectRow) {
@@ -262,6 +321,38 @@ export default function DraftForm({ initial }: { initial: ProspectRow[] }) {
       setTimeout(() => setCopiedId((id) => (id === row.id ? null : id)), 2000);
     } catch {
       // Clipboard denied — skip confirmation.
+    }
+  }
+
+  async function advanceStatus(row: ProspectRow) {
+    const next = NEXT_STATUS[row.status];
+    if (!next) return;
+    setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, status: next } : r)));
+    try {
+      const res = await fetch(`/api/prospects/${row.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: next }),
+      });
+      if (!res.ok) throw new Error();
+    } catch {
+      setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, status: row.status } : r)));
+    }
+  }
+
+  async function loadMore() {
+    if (loadingMore || !hasMore || rows.length === 0) return;
+    setLoadingMore(true);
+    try {
+      const cursor = rows[rows.length - 1].id;
+      const res = await fetch(`/api/prospects?cursor=${encodeURIComponent(cursor)}`);
+      const data = await res.json();
+      setRows((prev) => [...prev, ...(data.prospects as ProspectRow[])]);
+      setHasMore(Boolean(data.hasMore));
+    } catch {
+      // Leave hasMore as-is — user can just click "Load more" again.
+    } finally {
+      setLoadingMore(false);
     }
   }
 
@@ -361,7 +452,7 @@ export default function DraftForm({ initial }: { initial: ProspectRow[] }) {
               className={`max-w-md font-mono ${inputClass} disabled:opacity-50`}
             />
           </label>
-          <div>
+          <div className="flex items-center gap-3">
             <button
               onClick={handleBatchRun}
               disabled={batchRunning || !batchText.trim()}
@@ -369,6 +460,11 @@ export default function DraftForm({ initial }: { initial: ProspectRow[] }) {
             >
               {batchRunning ? `Running… (${batchDone}/${batchTotal})` : "Run batch"}
             </button>
+            {batchSkipped > 0 && (
+              <span className="text-xs text-zinc-600">
+                {batchSkipped} duplicate {batchSkipped === 1 ? "line" : "lines"} skipped
+              </span>
+            )}
           </div>
         </div>
       )}
@@ -392,7 +488,7 @@ export default function DraftForm({ initial }: { initial: ProspectRow[] }) {
               className={`max-w-md font-mono ${inputClass} disabled:opacity-50`}
             />
           </label>
-          <div>
+          <div className="flex items-center gap-3">
             <button
               onClick={handleSignalRun}
               disabled={signalRunning || !signalText.trim()}
@@ -400,6 +496,11 @@ export default function DraftForm({ initial }: { initial: ProspectRow[] }) {
             >
               {signalRunning ? `Researching… (${signalDone}/${signalTotal})` : "Run signals"}
             </button>
+            {signalSkipped > 0 && (
+              <span className="text-xs text-zinc-600">
+                {signalSkipped} duplicate {signalSkipped === 1 ? "line" : "lines"} skipped
+              </span>
+            )}
           </div>
         </div>
       )}
@@ -434,8 +535,19 @@ export default function DraftForm({ initial }: { initial: ProspectRow[] }) {
               return (
                 <div key={entry.id} className={base}>
                   <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-gradient-to-b from-rose-500 to-red-600" />
-                  <p className="text-sm font-bold tracking-tight text-white">{entry.company}</p>
-                  <p className="mt-2 text-xs text-red-400">{entry.message}</p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-bold tracking-tight text-white">{entry.company}</p>
+                      <p className="mt-2 text-xs text-red-400">{entry.message}</p>
+                    </div>
+                    <button
+                      onClick={() => retryBatchEntry(entry)}
+                      disabled={batchRunning}
+                      className="shrink-0 rounded-md border border-[#27272a] px-2.5 py-1 text-xs text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white disabled:cursor-not-allowed disabled:opacity-40 transition-all duration-200"
+                    >
+                      Retry
+                    </button>
+                  </div>
                 </div>
               );
             }
@@ -473,6 +585,10 @@ export default function DraftForm({ initial }: { initial: ProspectRow[] }) {
                     </a>
                   </>
                 )}
+                <span className="ml-auto flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-zinc-500">
+                  <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[row.status] ?? "bg-zinc-500"}`} />
+                  {STATUS_LABEL[row.status] ?? row.status}
+                </span>
               </div>
               <div className="mb-4">
                 <p className={`${label} mb-1.5`}>Signal</p>
@@ -482,7 +598,15 @@ export default function DraftForm({ initial }: { initial: ProspectRow[] }) {
                 <p className={`${label} mb-2`}>Opener</p>
                 <p className="text-sm leading-relaxed text-[#fafafa]">{row.opener}</p>
               </div>
-              <div className="mt-4 flex justify-end">
+              <div className="mt-4 flex justify-end gap-2">
+                {NEXT_STATUS[row.status] && (
+                  <button
+                    onClick={() => advanceStatus(row)}
+                    className="rounded-md border border-[#27272a] px-3 py-1.5 text-xs font-medium text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white active:scale-95 transition-all duration-200"
+                  >
+                    Mark {STATUS_LABEL[NEXT_STATUS[row.status]]}
+                  </button>
+                )}
                 <button
                   onClick={() => copyOpener(row)}
                   className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium active:scale-95 transition-all duration-200 ${
@@ -496,6 +620,18 @@ export default function DraftForm({ initial }: { initial: ProspectRow[] }) {
               </div>
             </div>
           ))}
+
+          {hasMore && rows.length > 0 && (
+            <div className="flex justify-center pt-2">
+              <button
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="rounded-lg border border-[#27272a] px-4 py-2 text-sm text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white disabled:cursor-not-allowed disabled:opacity-40 transition-all duration-200"
+              >
+                {loadingMore ? "Loading…" : "Load more"}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -537,7 +673,18 @@ export default function DraftForm({ initial }: { initial: ProspectRow[] }) {
                       {entry.status === "loading" ? (
                         <td colSpan={4} className={`${tdClass} italic text-[#a1a1aa]`}>Researching…</td>
                       ) : entry.status === "error" ? (
-                        <td colSpan={4} className={`${tdClass} text-red-400`}>{entry.message}</td>
+                        <td colSpan={4} className={`${tdClass} text-red-400`}>
+                          <div className="flex items-center justify-between gap-3">
+                            <span>{entry.message}</span>
+                            <button
+                              onClick={() => retrySignalEntry(entry)}
+                              disabled={signalRunning}
+                              className="shrink-0 rounded-md border border-[#27272a] px-2.5 py-1 text-xs text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white disabled:cursor-not-allowed disabled:opacity-40 transition-all duration-200"
+                            >
+                              Retry
+                            </button>
+                          </div>
+                        </td>
                       ) : (
                         <td colSpan={4} className={`${tdClass} text-zinc-600`}>Queued</td>
                       )}
