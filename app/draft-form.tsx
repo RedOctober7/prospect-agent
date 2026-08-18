@@ -140,9 +140,11 @@ const tdClass = "py-3 pr-6 align-top text-sm";
 export default function DraftForm({
   initial,
   initialHasMore,
+  initialCursor,
 }: {
   initial: ProspectRow[];
   initialHasMore: boolean;
+  initialCursor: string | null;
 }) {
   const [mode, setMode] = useState<"single" | "batch" | "signals">("single");
 
@@ -174,6 +176,7 @@ export default function DraftForm({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(initialHasMore);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [cursor, setCursor] = useState(initialCursor);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<EditableFields | null>(null);
   const [editSaving, setEditSaving] = useState(false);
@@ -427,16 +430,16 @@ export default function DraftForm({
   }
 
   async function loadMore() {
-    if (loadingMore || !hasMore || rows.length === 0) return;
+    if (loadingMore || !hasMore || !cursor) return;
     setLoadingMore(true);
     try {
-      const cursor = rows[rows.length - 1].id;
       const res = await fetch(`/api/prospects?cursor=${encodeURIComponent(cursor)}`);
       const data = await res.json();
       setRows((prev) => [...prev, ...(data.prospects as ProspectRow[])]);
       setHasMore(Boolean(data.hasMore));
+      setCursor(data.nextCursor ?? null);
     } catch {
-      // Leave hasMore as-is — user can just click "Load more" again.
+      // Leave hasMore/cursor as-is — user can just click "Load more" again.
     } finally {
       setLoadingMore(false);
     }
@@ -765,13 +768,15 @@ export default function DraftForm({
                     )}
                     <button
                       onClick={() => startEdit(row)}
-                      className="rounded-md border border-[#27272a] px-3 py-1.5 text-xs font-medium text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white active:scale-95 transition-all duration-200"
+                      disabled={editingId !== null}
+                      title={editingId !== null ? "Finish or cancel the current edit first" : undefined}
+                      className="rounded-md border border-[#27272a] px-3 py-1.5 text-xs font-medium text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white disabled:cursor-not-allowed disabled:opacity-40 active:scale-95 transition-all duration-200"
                     >
                       Edit
                     </button>
                     <button
                       onClick={() => deleteRow(row)}
-                      disabled={deletingId === row.id}
+                      disabled={deletingId === row.id || editingId !== null}
                       className="rounded-md border border-[#27272a] px-3 py-1.5 text-xs font-medium text-[#a1a1aa] hover:border-red-800/60 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40 active:scale-95 transition-all duration-200"
                     >
                       {deletingId === row.id ? "Deleting…" : "Delete"}
