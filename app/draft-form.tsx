@@ -58,6 +58,17 @@ function downloadCsv(filename: string, headers: string[], rowData: (string | num
   URL.revokeObjectURL(url);
 }
 
+// signalSource comes from the model's web research — don't trust it as a
+// bare href. Only render it as a link when it's actually http(s).
+function isHttpUrl(value: string): boolean {
+  try {
+    const u = new URL(value);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 function scoreColor(total: number): string {
   if (total >= 13) return "text-emerald-400";
   if (total >= 10) return "text-green-400";
@@ -577,7 +588,7 @@ export default function DraftForm({
                 <span className="text-base font-bold tracking-tight text-white">{row.companyName}</span>
                 <span className="text-zinc-600">·</span>
                 <span className="text-xs text-[#a1a1aa]">{row.targetRole}</span>
-                {row.signalSource && (
+                {row.signalSource && isHttpUrl(row.signalSource) && (
                   <>
                     <span className="text-zinc-600">·</span>
                     <a href={row.signalSource} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-400 hover:text-indigo-300 hover:underline transition-all duration-200">
@@ -712,7 +723,7 @@ export default function DraftForm({
                       </td>
                       <td className={`${tdClass} text-[#a1a1aa] whitespace-nowrap`}>{result.targetRole}</td>
                       <td className={tdClass}>
-                        {result.signalSource ? (
+                        {result.signalSource && isHttpUrl(result.signalSource) ? (
                           <a
                             href={result.signalSource}
                             target="_blank"
