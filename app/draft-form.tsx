@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { isHttpUrl } from "@/lib/url";
+import { parseCompanyLines } from "@/lib/parseLines";
 
 export type ProspectRow = {
   id: string;
@@ -76,17 +78,6 @@ function downloadCsv(filename: string, headers: string[], rowData: (string | num
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
-}
-
-// signalSource comes from the model's web research — don't trust it as a
-// bare href. Only render it as a link when it's actually http(s).
-function isHttpUrl(value: string): boolean {
-  try {
-    const u = new URL(value);
-    return u.protocol === "http:" || u.protocol === "https:";
-  } catch {
-    return false;
-  }
 }
 
 function scoreColor(total: number): string {
@@ -206,26 +197,6 @@ export default function DraftForm({
     }
   }
 
-  function parseBatchLines(text: string): { entries: BatchEntry[]; skipped: number } {
-    const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
-    const seen = new Set<string>();
-    const entries: BatchEntry[] = [];
-    let skipped = 0;
-    lines.forEach((line, i) => {
-      const commaIdx = line.indexOf(",");
-      const co = commaIdx >= 0 ? line.slice(0, commaIdx).trim() : line.trim();
-      const site = commaIdx >= 0 ? line.slice(commaIdx + 1).trim() : "";
-      const key = co.toLowerCase();
-      if (seen.has(key)) {
-        skipped++;
-        return;
-      }
-      seen.add(key);
-      entries.push({ id: `batch-${Date.now()}-${i}`, status: "pending", company: co, website: site });
-    });
-    return { entries, skipped };
-  }
-
   async function runBatchEntry(entry: BatchEntry) {
     setBatchQueue((prev) =>
       prev.map((e) =>
@@ -258,7 +229,7 @@ export default function DraftForm({
 
   async function handleBatchRun() {
     if (batchRunning) return;
-    const { entries, skipped } = parseBatchLines(batchText);
+    const { entries, skipped } = parseCompanyLines(batchText, "batch");
     if (entries.length === 0) return;
 
     setBatchQueue(entries);
@@ -277,26 +248,6 @@ export default function DraftForm({
   async function retryBatchEntry(entry: BatchEntry) {
     if (batchRunning) return;
     await runBatchEntry(entry);
-  }
-
-  function parseSignalLines(text: string): { entries: SignalEntry[]; skipped: number } {
-    const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
-    const seen = new Set<string>();
-    const entries: SignalEntry[] = [];
-    let skipped = 0;
-    lines.forEach((line, i) => {
-      const commaIdx = line.indexOf(",");
-      const co = commaIdx >= 0 ? line.slice(0, commaIdx).trim() : line.trim();
-      const site = commaIdx >= 0 ? line.slice(commaIdx + 1).trim() : "";
-      const key = co.toLowerCase();
-      if (seen.has(key)) {
-        skipped++;
-        return;
-      }
-      seen.add(key);
-      entries.push({ id: `signal-${Date.now()}-${i}`, status: "pending", company: co, website: site });
-    });
-    return { entries, skipped };
   }
 
   async function runSignalEntry(entry: SignalEntry) {
@@ -331,7 +282,7 @@ export default function DraftForm({
 
   async function handleSignalRun() {
     if (signalRunning) return;
-    const { entries, skipped } = parseSignalLines(signalText);
+    const { entries, skipped } = parseCompanyLines(signalText, "signal");
     if (entries.length === 0) return;
 
     setSignalQueue(entries);

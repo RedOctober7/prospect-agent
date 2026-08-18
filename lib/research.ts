@@ -15,7 +15,7 @@ function getClient(): Anthropic {
 
 // Web search tool responses interleave server_tool_use / web_search_tool_result
 // blocks with text blocks; concatenate every text block and ignore the rest.
-function extractText(content: Anthropic.ContentBlock[]): string {
+export function extractText(content: Anthropic.ContentBlock[]): string {
   return content
     .filter((b): b is Anthropic.TextBlock => b.type === "text")
     .map((b) => b.text)
@@ -26,7 +26,7 @@ function extractText(content: Anthropic.ContentBlock[]): string {
 // last } so any text the model adds before or after the object is ignored.
 // Validates against the given Zod schema so a malformed or incomplete
 // response fails loudly here instead of saving bad data to the DB.
-function extractJson<T>(text: string, schema: z.ZodType<T>): T {
+export function extractJson<T>(text: string, schema: z.ZodType<T>): T {
   const cleaned = text.replace(/```json|```/g, "");
   const first = cleaned.indexOf("{");
   const last = cleaned.lastIndexOf("}");
@@ -129,7 +129,7 @@ Return ONLY a JSON object, with no other text before or after it:
   "opener": "the 2-3 sentence opener"
 }`;
 
-const ProspectDraftSchema = z.object({
+export const ProspectDraftSchema = z.object({
   companyName: z.string(),
   signal: z.string(),
   signalSource: z.string(),
@@ -221,7 +221,7 @@ Return ONLY a JSON object, no other text:
   "scoreReason": "one sentence explaining why this total is right"
 }`;
 
-const SignalDraftSchema = z.object({
+export const SignalDraftSchema = z.object({
   companyName: z.string(),
   signal: z.string(),
   signalSource: z.string(),

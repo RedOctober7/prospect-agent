@@ -57,9 +57,28 @@ without drafting an opener, for prioritizing who to reach out to first.
 | `npm run dev` | Start the Next.js dev server |
 | `npm run build` | Production build |
 | `npm run start` | Serve the production build |
+| `npm run lint` | ESLint |
+| `npm run typecheck` | `tsc --noEmit` |
+| `npm run test` | Run the unit test suite once (Vitest) |
+| `npm run test:watch` | Run the test suite in watch mode |
 | `npm run draft -- "Company" "website.com"` | Run the research+draft engine standalone from the terminal, no UI/DB. Prints the JSON result to stdout. |
 | `npm run prisma:migrate` | Run Prisma migrations against `.env.local` |
 | `npm run prisma:push` | Push the schema without creating a migration (quick local iteration) |
+
+## Tests
+
+Unit tests cover the parts of the app that are pure logic and prone to
+silent bugs: cursor pagination (`lib/prospects.test.ts`), the model's
+JSON-extraction + Zod validation pipeline, mocked against the Anthropic
+SDK so no API key or network call is needed (`lib/research.test.ts`),
+batch/signal line parsing and dedup (`lib/parseLines.test.ts`), and the
+`signalSource` link-safety check (`lib/url.test.ts`). They run in CI on
+every push and PR.
+
+Out of scope for now: the API route handlers themselves (`app/api/**`)
+aren't covered by automated tests — they were verified manually against a
+real Postgres instance during development. Adding real route/integration
+tests would need a test database wired into CI.
 
 ## Deploying (Vercel)
 

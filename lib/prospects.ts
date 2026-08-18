@@ -1,6 +1,25 @@
+import { z } from "zod";
+
 // Shared between the SSR page load and the "load more" API route so both
 // paginate the same way.
 export const PAGE_SIZE = 25;
+
+// All fields optional — a PATCH can update just the status, just the
+// opener, or any combination. At least one must be present.
+export const ProspectPatchSchema = z
+  .object({
+    status: z.enum(["new", "contacted", "replied"]),
+    companyName: z.string().trim().min(1),
+    website: z.string().trim(),
+    signal: z.string().trim().min(1),
+    signalSource: z.string().trim(),
+    targetRole: z.string().trim().min(1),
+    opener: z.string().trim().min(1),
+  })
+  .partial()
+  .refine((data) => Object.keys(data).length > 0, {
+    message: "At least one field is required.",
+  });
 
 export const prospectListSelect = {
   id: true,
