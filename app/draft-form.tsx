@@ -173,6 +173,10 @@ export default function DraftForm({
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Guards batch/signal Retry against a double-click firing two concurrent
+  // requests for the same entry — each success creates a new DB row, so a
+  // race there would leave duplicate prospects, not just a wasted API call.
+  const [retryingIds, setRetryingIds] = useState<Set<string>>(new Set());
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -246,8 +250,17 @@ export default function DraftForm({
   }
 
   async function retryBatchEntry(entry: BatchEntry) {
-    if (batchRunning) return;
-    await runBatchEntry(entry);
+    if (batchRunning || retryingIds.has(entry.id)) return;
+    setRetryingIds((prev) => new Set(prev).add(entry.id));
+    try {
+      await runBatchEntry(entry);
+    } finally {
+      setRetryingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(entry.id);
+        return next;
+      });
+    }
   }
 
   async function runSignalEntry(entry: SignalEntry) {
@@ -300,8 +313,17 @@ export default function DraftForm({
   }
 
   async function retrySignalEntry(entry: SignalEntry) {
-    if (signalRunning) return;
-    await runSignalEntry(entry);
+    if (signalRunning || retryingIds.has(entry.id)) return;
+    setRetryingIds((prev) => new Set(prev).add(entry.id));
+    try {
+      await runSignalEntry(entry);
+    } finally {
+      setRetryingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(entry.id);
+        return next;
+      });
+    }
   }
 
   async function copyOpener(row: ProspectRow) {
@@ -582,10 +604,10 @@ export default function DraftForm({
                     </div>
                     <button
                       onClick={() => retryBatchEntry(entry)}
-                      disabled={batchRunning}
+                      disabled={batchRunning || retryingIds.has(entry.id)}
                       className="shrink-0 rounded-md border border-[#27272a] px-2.5 py-1 text-xs text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white disabled:cursor-not-allowed disabled:opacity-40 transition-all duration-200"
                     >
-                      Retry
+                      {retryingIds.has(entry.id) ? "Retrying…" : "Retry"}
                     </button>
                   </div>
                 </div>
@@ -805,10 +827,10 @@ export default function DraftForm({
                             <span>{entry.message}</span>
                             <button
                               onClick={() => retrySignalEntry(entry)}
-                              disabled={signalRunning}
+                              disabled={signalRunning || retryingIds.has(entry.id)}
                               className="shrink-0 rounded-md border border-[#27272a] px-2.5 py-1 text-xs text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white disabled:cursor-not-allowed disabled:opacity-40 transition-all duration-200"
                             >
-                              Retry
+                              {retryingIds.has(entry.id) ? "Retrying…" : "Retry"}
                             </button>
                           </div>
                         </td>
