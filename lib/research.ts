@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { z } from "zod";
 
 // Lazily constructed so ANTHROPIC_API_KEY is read from the environment at call
 // time, not at import time. A standalone tsx script loads .env.local *after*
@@ -10,6 +11,44 @@ let client: Anthropic | null = null;
 function getClient(): Anthropic {
   if (!client) client = new Anthropic();
   return client;
+}
+
+// Web search tool responses interleave server_tool_use / web_search_tool_result
+// blocks with text blocks; concatenate every text block and ignore the rest.
+export function extractText(content: Anthropic.ContentBlock[]): string {
+  return content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("\n");
+}
+
+// Defensive parse: strip code fences, then slice from the first { to the
+// last } so any text the model adds before or after the object is ignored.
+// Validates against the given Zod schema so a malformed or incomplete
+// response fails loudly here instead of saving bad data to the DB.
+export function extractJson<T>(text: string, schema: z.ZodType<T>): T {
+  const cleaned = text.replace(/```json|```/g, "");
+  const first = cleaned.indexOf("{");
+  const last = cleaned.lastIndexOf("}");
+  if (first === -1 || last === -1 || last <= first) {
+    throw new Error(`No JSON found in model response. Raw text was:\n${text}`);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(cleaned.slice(first, last + 1));
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new Error(`Model response was not valid JSON (${reason}). Raw text was:\n${text}`);
+  }
+
+  const result = schema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error(
+      `Model response didn't match the expected shape: ${result.error.message}\nRaw text was:\n${text}`
+    );
+  }
+  return result.data;
 }
 
 // Tuned to kill the usual AI-cold-email tells. The single most important
@@ -90,13 +129,15 @@ Return ONLY a JSON object, with no other text before or after it:
   "opener": "the 2-3 sentence opener"
 }`;
 
-export type ProspectDraft = {
-  companyName: string;
-  signal: string;
-  signalSource: string;
-  targetRole: string;
-  opener: string;
-};
+export const ProspectDraftSchema = z.object({
+  companyName: z.string(),
+  signal: z.string(),
+  signalSource: z.string(),
+  targetRole: z.string(),
+  opener: z.string(),
+});
+
+export type ProspectDraft = z.infer<typeof ProspectDraftSchema>;
 
 export async function researchAndDraft(
   company: string,
@@ -113,30 +154,11 @@ export async function researchAndDraft(
       },
     ],
     tools: [
-      { type: "web_search_20250305", name: "web_search", max_uses: 3 },
+      { type: "web_search_20260209", name: "web_search", max_uses: 3 },
     ],
   });
 
-  // When the model uses web search, the response is a list of mixed content
-  // blocks (server_tool_use, web_search_tool_result, text). Concatenate every
-  // text block; ignore the tool-use / tool-result blocks.
-  const text = msg.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("\n");
-
-  // Defensive parse: strip code fences, then slice from the first { to the
-  // last } so any text the model adds before or after the object is ignored.
-  const cleaned = text.replace(/```json|```/g, "");
-  const first = cleaned.indexOf("{");
-  const last = cleaned.lastIndexOf("}");
-  if (first === -1 || last === -1 || last <= first) {
-    throw new Error(
-      `No JSON found in model response. Raw text was:\n${text}`
-    );
-  }
-
-  return JSON.parse(cleaned.slice(first, last + 1)) as ProspectDraft;
+  return extractJson(extractText(msg.content), ProspectDraftSchema);
 }
 
 const SIGNAL_SYSTEM = `You research a company and score the quality of their best recent signal for cold outreach.
@@ -199,17 +221,19 @@ Return ONLY a JSON object, no other text:
   "scoreReason": "one sentence explaining why this total is right"
 }`;
 
-export type SignalDraft = {
-  companyName: string;
-  signal: string;
-  signalSource: string;
-  targetRole: string;
-  recency: number;
-  triggerStrength: number;
-  specificity: number;
-  total: number;
-  scoreReason: string;
-};
+export const SignalDraftSchema = z.object({
+  companyName: z.string(),
+  signal: z.string(),
+  signalSource: z.string(),
+  targetRole: z.string(),
+  recency: z.number(),
+  triggerStrength: z.number(),
+  specificity: z.number(),
+  total: z.number(),
+  scoreReason: z.string(),
+});
+
+export type SignalDraft = z.infer<typeof SignalDraftSchema>;
 
 export async function researchSignal(
   company: string,
@@ -226,21 +250,9 @@ export async function researchSignal(
       },
     ],
     tools: [
-      { type: "web_search_20250305", name: "web_search", max_uses: 3 },
+      { type: "web_search_20260209", name: "web_search", max_uses: 3 },
     ],
   });
 
-  const text = msg.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("\n");
-
-  const cleaned = text.replace(/```json|```/g, "");
-  const first = cleaned.indexOf("{");
-  const last = cleaned.lastIndexOf("}");
-  if (first === -1 || last === -1 || last <= first) {
-    throw new Error(`No JSON found in model response. Raw text was:\n${text}`);
-  }
-
-  return JSON.parse(cleaned.slice(first, last + 1)) as SignalDraft;
+  return extractJson(extractText(msg.content), SignalDraftSchema);
 }
