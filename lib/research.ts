@@ -20,9 +20,20 @@ function getClient(): Anthropic {
 const MODEL = "claude-sonnet-5-5";
 const EFFORT = "medium";
 
+// Server-side refusal fallback: if Sonnet 5.5's safety classifiers decline,
+// the API re-runs the same request on Anthropic's recommended substitute
+// model inside the same call. "default" routes by refusal category, so
+// there's no fallback model to pin or migrate later. Only some categories
+// are retried (for Sonnet 5.5: cyber and frontier_llm), so a refusal can
+// still come back and assertNotRefused below still applies.
+const FALLBACK: Pick<Anthropic.Beta.MessageCreateParams, "betas" | "fallbacks"> = {
+  betas: ["server-side-fallback-2026-07-01"],
+  fallbacks: "default",
+};
+
 // A refusal is a normal 200 with stop_reason "refusal" and no usable text;
 // surface it as its own error instead of a confusing "No JSON found".
-function assertNotRefused(msg: Anthropic.Message): void {
+function assertNotRefused(msg: Anthropic.Beta.BetaMessage): void {
   if (msg.stop_reason === "refusal") {
     throw new Error("The model declined to research this company.");
   }
@@ -30,9 +41,9 @@ function assertNotRefused(msg: Anthropic.Message): void {
 
 // Web search tool responses interleave server_tool_use / web_search_tool_result
 // blocks with text blocks; concatenate every text block and ignore the rest.
-export function extractText(content: Anthropic.ContentBlock[]): string {
+export function extractText(content: Anthropic.Beta.BetaContentBlock[]): string {
   return content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
     .map((b) => b.text)
     .join("\n");
 }
@@ -158,7 +169,8 @@ export async function researchAndDraft(
   company: string,
   website: string
 ): Promise<ProspectDraft> {
-  const msg = await getClient().messages.create({
+  const msg = await getClient().beta.messages.create({
+    ...FALLBACK,
     model: MODEL,
     max_tokens: 16000,
     output_config: { effort: EFFORT },
@@ -256,7 +268,8 @@ export async function researchSignal(
   company: string,
   website: string
 ): Promise<SignalDraft> {
-  const msg = await getClient().messages.create({
+  const msg = await getClient().beta.messages.create({
+    ...FALLBACK,
     model: MODEL,
     max_tokens: 16000,
     output_config: { effort: EFFORT },

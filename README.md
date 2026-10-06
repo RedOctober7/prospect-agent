@@ -115,6 +115,13 @@ tests would need a test database wired into CI.
 
 ## Notes
 
+- Research calls go through the beta Messages endpoint with server-side
+  refusal fallback (`fallbacks: "default"`): if Sonnet 5.5's safety
+  classifiers decline a company, the API retries on Anthropic's
+  recommended substitute model in the same call. Only some refusal
+  categories are retried, so a decline can still surface as an error.
+  Server-side fallback is Claude API only (not Bedrock/Vertex/Foundry).
+
 - The `Prospect` table is intentionally a single flat table (see the
   comment in `prisma/schema.prisma`) — resist normalizing it for v1.
 - `signalSource` is whatever URL the model returns from its research; it's
