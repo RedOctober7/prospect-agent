@@ -4,7 +4,7 @@ vi.mock("@anthropic-ai/sdk", () => ({
   // Must be a real (non-arrow) function so `new Anthropic()` in getClient()
   // works — an arrow function can't be used as a constructor.
   default: function MockAnthropic() {
-    return { messages: { create: mockCreate } };
+    return { beta: { messages: { create: mockCreate } } };
   },
 }));
 
@@ -100,7 +100,7 @@ describe("researchAndDraft (mocked Anthropic client)", () => {
     await expect(researchAndDraft("Acme", "acme.com")).rejects.toThrow(/didn't match the expected shape/);
   });
 
-  it("ignores leading thinking blocks and sends the model + effort", async () => {
+  it("ignores leading thinking blocks and sends model, effort and fallback", async () => {
     mockCreate.mockResolvedValue({
       stop_reason: "end_turn",
       content: [
@@ -124,11 +124,36 @@ describe("researchAndDraft (mocked Anthropic client)", () => {
       expect.objectContaining({
         model: "claude-sonnet-5-5",
         output_config: { effort: "medium" },
+        betas: ["server-side-fallback-2026-07-01"],
+        fallbacks: "default",
       })
     );
   });
 
-  it("throws a clear error when the model declines", async () => {
+  it("parses a response the fallback model served after a decline", async () => {
+    mockCreate.mockResolvedValue({
+      stop_reason: "end_turn",
+      model: "claude-sonnet-5",
+      content: [
+        { type: "fallback", from: { model: "claude-sonnet-5-5" }, to: { model: "claude-sonnet-5" } },
+        {
+          type: "text",
+          text: JSON.stringify({
+            companyName: "Acme",
+            signal: "raised a $10M seed round",
+            signalSource: "https://techcrunch.com/acme-seed",
+            targetRole: "VP Sales",
+            opener: "Saw the seed round news.",
+          }),
+        },
+      ],
+    });
+
+    const draft = await researchAndDraft("Acme", "acme.com");
+    expect(draft.companyName).toBe("Acme");
+  });
+
+  it("throws a clear error when the whole fallback chain declines", async () => {
     mockCreate.mockResolvedValue({ stop_reason: "refusal", content: [] });
 
     await expect(researchAndDraft("Acme", "acme.com")).rejects.toThrow(/declined/);
