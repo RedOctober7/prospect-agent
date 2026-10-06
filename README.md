@@ -6,6 +6,27 @@ cold outreach opener built on that single fact. Also has a "signals" mode
 that scores a list of companies (recency / trigger strength / specificity)
 without drafting an opener, for prioritizing who to reach out to first.
 
+Features:
+
+- **Draft** — single company or a batch (one per line), each row with its
+  own loading/retry state.
+- **Signals** — rank a list of companies by signal strength, no opener.
+- **CSV export** — download batch/signal results as `prospects-<date>.csv`.
+- **Saved prospects** — every draft is stored in Postgres; the list loads
+  25 at a time ("load more", cursor-paginated) and each prospect can be
+  edited (status `new` / `contacted` / `replied`, company, website,
+  signal, source, opener) or deleted.
+
+## API routes
+
+| Route | Method | What it does |
+|---|---|---|
+| `/api/draft` | POST | Research a company and draft an opener, then save it |
+| `/api/signal` | POST | Research and score a company's signal, no opener |
+| `/api/prospects` | GET | List saved prospects (`?cursor=` for the next page) |
+| `/api/prospects/[id]` | PATCH | Update any subset of a prospect's fields |
+| `/api/prospects/[id]` | DELETE | Delete a prospect |
+
 ## Stack
 
 - Next.js (App Router) + TypeScript, Tailwind CSS
@@ -62,6 +83,7 @@ without drafting an opener, for prioritizing who to reach out to first.
 | `npm run test` | Run the unit test suite once (Vitest) |
 | `npm run test:watch` | Run the test suite in watch mode |
 | `npm run draft -- "Company" "website.com"` | Run the research+draft engine standalone from the terminal, no UI/DB. Prints the JSON result to stdout. |
+| `npm run prisma:generate` | Regenerate the Prisma client after a schema change |
 | `npm run prisma:migrate` | Run Prisma migrations against `.env.local` |
 | `npm run prisma:push` | Push the schema without creating a migration (quick local iteration) |
 
@@ -97,4 +119,4 @@ tests would need a test database wired into CI.
   comment in `prisma/schema.prisma`) — resist normalizing it for v1.
 - `signalSource` is whatever URL the model returns from its research; it's
   only rendered as a clickable link when it parses as `http(s)` (see
-  `isHttpUrl` in `app/draft-form.tsx`).
+  `isHttpUrl` in `lib/url.ts`, used by `app/draft-form.tsx`).
