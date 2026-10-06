@@ -99,6 +99,40 @@ describe("researchAndDraft (mocked Anthropic client)", () => {
 
     await expect(researchAndDraft("Acme", "acme.com")).rejects.toThrow(/didn't match the expected shape/);
   });
+
+  it("ignores leading thinking blocks and sends the model + effort", async () => {
+    mockCreate.mockResolvedValue({
+      stop_reason: "end_turn",
+      content: [
+        { type: "thinking", thinking: "", signature: "sig" },
+        {
+          type: "text",
+          text: JSON.stringify({
+            companyName: "Acme",
+            signal: "raised a $10M seed round",
+            signalSource: "https://techcrunch.com/acme-seed",
+            targetRole: "VP Sales",
+            opener: "Saw the seed round news.",
+          }),
+        },
+      ],
+    });
+
+    const draft = await researchAndDraft("Acme", "acme.com");
+    expect(draft.companyName).toBe("Acme");
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "claude-sonnet-5-5",
+        output_config: { effort: "medium" },
+      })
+    );
+  });
+
+  it("throws a clear error when the model declines", async () => {
+    mockCreate.mockResolvedValue({ stop_reason: "refusal", content: [] });
+
+    await expect(researchAndDraft("Acme", "acme.com")).rejects.toThrow(/declined/);
+  });
 });
 
 describe("researchSignal (mocked Anthropic client)", () => {
