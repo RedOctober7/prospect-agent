@@ -31,7 +31,7 @@ Features:
 
 - Next.js (App Router) + TypeScript, Tailwind CSS
 - Prisma + PostgreSQL (Supabase)
-- Anthropic SDK (`claude-sonnet-4-6`, web search tool)
+- Anthropic SDK (`claude-sonnet-5-5`, web search tool)
 - Zod for validating the model's JSON output
 
 ## Setup

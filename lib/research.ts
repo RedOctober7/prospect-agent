@@ -13,6 +13,21 @@ function getClient(): Anthropic {
   return client;
 }
 
+// Sonnet 5.5 thinks by default (adaptive) and thinking tokens count toward
+// max_tokens, so the caps below leave room for thinking plus the JSON reply.
+// Effort is set explicitly: "medium" keeps a research call (up to 3 web
+// searches) well inside the routes' 60s maxDuration.
+const MODEL = "claude-sonnet-5-5";
+const EFFORT = "medium";
+
+// A refusal is a normal 200 with stop_reason "refusal" and no usable text;
+// surface it as its own error instead of a confusing "No JSON found".
+function assertNotRefused(msg: Anthropic.Message): void {
+  if (msg.stop_reason === "refusal") {
+    throw new Error("The model declined to research this company.");
+  }
+}
+
 // Web search tool responses interleave server_tool_use / web_search_tool_result
 // blocks with text blocks; concatenate every text block and ignore the rest.
 export function extractText(content: Anthropic.ContentBlock[]): string {
@@ -144,8 +159,9 @@ export async function researchAndDraft(
   website: string
 ): Promise<ProspectDraft> {
   const msg = await getClient().messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 1500,
+    model: MODEL,
+    max_tokens: 16000,
+    output_config: { effort: EFFORT },
     system: SYSTEM,
     messages: [
       {
@@ -158,6 +174,7 @@ export async function researchAndDraft(
     ],
   });
 
+  assertNotRefused(msg);
   return extractJson(extractText(msg.content), ProspectDraftSchema);
 }
 
@@ -240,8 +257,9 @@ export async function researchSignal(
   website: string
 ): Promise<SignalDraft> {
   const msg = await getClient().messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 1000,
+    model: MODEL,
+    max_tokens: 16000,
+    output_config: { effort: EFFORT },
     system: SIGNAL_SYSTEM,
     messages: [
       {
@@ -254,5 +272,6 @@ export async function researchSignal(
     ],
   });
 
+  assertNotRefused(msg);
   return extractJson(extractText(msg.content), SignalDraftSchema);
 }
