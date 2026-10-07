@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { isHttpUrl } from "@/lib/url";
+import { useEffect, useState } from "react";
+import { isHttpUrl, sourceLabel } from "@/lib/url";
 import { parseCompanyLines } from "@/lib/parseLines";
 
 export type ProspectRow = {
@@ -13,6 +13,8 @@ export type ProspectRow = {
   targetRole: string;
   opener: string;
   status: string;
+  // Only present on drafts made in this session — searches aren't persisted.
+  searches?: string[];
 };
 
 type EditableFields = {
@@ -37,7 +39,7 @@ function toEditableFields(row: ProspectRow): EditableFields {
 
 const NEXT_STATUS: Record<string, string> = { new: "contacted", contacted: "replied" };
 const STATUS_LABEL: Record<string, string> = { new: "New", contacted: "Contacted", replied: "Replied" };
-const STATUS_DOT: Record<string, string> = { new: "bg-zinc-500", contacted: "bg-amber-400", replied: "bg-emerald-400" };
+const STATUS_DOT: Record<string, string> = { new: "bg-subtle", contacted: "bg-amber-400", replied: "bg-success" };
 
 type BatchEntry =
   | { id: string; status: "pending"; company: string; website: string }
@@ -55,6 +57,7 @@ type SignalResult = {
   specificity: number;
   total: number;
   scoreReason: string;
+  searches?: string[];
 };
 
 type SignalEntry =
@@ -80,12 +83,13 @@ function downloadCsv(filename: string, headers: string[], rowData: (string | num
   URL.revokeObjectURL(url);
 }
 
+// Text colors per tier, darker in light mode so each clears 4.5:1 contrast.
 function scoreColor(total: number): string {
-  if (total >= 13) return "text-emerald-400";
-  if (total >= 10) return "text-green-400";
-  if (total >= 7) return "text-yellow-400";
-  if (total >= 4) return "text-orange-400";
-  return "text-red-400";
+  if (total >= 13) return "text-emerald-700 dark:text-emerald-400";
+  if (total >= 10) return "text-green-700 dark:text-green-400";
+  if (total >= 7) return "text-yellow-700 dark:text-yellow-400";
+  if (total >= 4) return "text-orange-700 dark:text-orange-400";
+  return "text-red-700 dark:text-red-400";
 }
 
 function CopyIcon() {
@@ -114,18 +118,94 @@ function EmptyIcon() {
   );
 }
 
+function DownloadIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+  );
+}
+
+// Seconds since mount — an honest progress signal while a research call
+// (up to 3 web searches) is in flight, instead of a fake step-by-step.
+function Elapsed() {
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setSeconds((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  return <span className="tabular-nums">{seconds}s</span>;
+}
+
+function ResearchingLine({ verb }: { verb: string }) {
+  return (
+    <p className="font-mono text-[11px] text-subtle">
+      <span className="text-accent">›</span> {verb}
+      <span className="animate-blink">_</span> <Elapsed />
+    </p>
+  );
+}
+
+// The research trace: the web searches the agent actually ran for this
+// draft, revealed one line at a time.
+// `compact` drops the "web_search" label for narrow spots like table cells.
+function ResearchTrace({
+  searches,
+  compact = false,
+  className = "",
+}: {
+  searches: string[];
+  compact?: boolean;
+  className?: string;
+}) {
+  if (searches.length === 0) return null;
+  return (
+    <ol aria-label="Web searches the agent ran" className={`flex flex-col gap-1 font-mono text-[11px] leading-relaxed ${className}`}>
+      {searches.map((q, i) => (
+        <li key={i} className="flex gap-2 animate-trace-in" style={{ animationDelay: `${i * 90}ms` }}>
+          <span className="text-accent">›</span>
+          {!compact && <span className="shrink-0 text-subtle">web_search</span>}
+          <span className="min-w-0 break-words text-muted">&ldquo;{q}&rdquo;</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function SourceLink({ href }: { href: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="font-mono text-[11px] text-accent underline-offset-2 transition-all duration-200 hover:underline"
+    >
+      ↗ {sourceLabel(href)}
+    </a>
+  );
+}
+
 const inputClass =
-  "rounded-lg border border-[#27272a] bg-[#18181b] px-3 py-2 text-sm text-white placeholder-zinc-600 " +
-  "focus:border-violet-500/60 focus:ring-2 focus:ring-violet-500/20 focus:outline-none transition-all duration-200";
+  "w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-fg placeholder:text-subtle " +
+  "focus:border-accent/60 focus:ring-2 focus:ring-accent/20 focus:outline-none transition-all duration-200";
 
 const btnPrimary =
-  "rounded-lg bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-2 text-sm font-medium text-white " +
-  "hover:from-indigo-400 hover:to-violet-400 hover:shadow-[0_0_24px_rgba(139,92,246,0.45)] " +
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-ink " +
+  "hover:brightness-110 hover:shadow-[0_0_0_4px_rgb(var(--accent)/0.18)] " +
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg " +
+  "active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:shadow-none disabled:hover:brightness-100 transition-all duration-200";
+
+const btnGhost =
+  "inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-line px-3 py-1.5 text-xs font-medium text-muted " +
+  "hover:border-line-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 " +
   "active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 transition-all duration-200";
 
-const label = "text-[10px] font-semibold uppercase tracking-widest text-zinc-600";
+const label = "font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-subtle";
 
-const thClass = "py-2.5 pr-6 text-[10px] font-semibold uppercase tracking-widest text-zinc-600 text-left";
+const card = "relative overflow-hidden rounded-xl border border-line bg-surface p-5 sm:p-6 animate-fade-slide-in";
+const accentBar = "absolute inset-y-0 left-0 w-0.5";
+
+const thClass = "py-2.5 pr-6 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-subtle text-left";
 const tdClass = "py-3 pr-6 align-top text-sm";
 
 export default function DraftForm({
@@ -444,19 +524,19 @@ export default function DraftForm({
   return (
     <div>
       {/* Mode tabs */}
-      <div className="mb-7 flex border-b border-[#27272a]">
+      <div className="mb-7 flex border-b border-line" role="tablist">
         {(["single", "batch", "signals"] as const).map((m) => (
           <button
             key={m}
+            role="tab"
+            aria-selected={mode === m}
             onClick={() => setMode(m)}
-            className={`relative -mb-px px-4 py-2 text-sm font-medium capitalize transition-all duration-200 ${
-              mode === m ? "text-white" : "text-zinc-500 hover:text-zinc-300"
+            className={`relative -mb-px px-4 py-2 text-sm font-medium capitalize transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
+              mode === m ? "text-fg" : "text-subtle hover:text-fg"
             }`}
           >
             {m}
-            {mode === m && (
-              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-indigo-500 to-violet-500" />
-            )}
+            {mode === m && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent" />}
           </button>
         ))}
       </div>
@@ -464,14 +544,14 @@ export default function DraftForm({
       {/* ── Single ── */}
       {mode === "single" && (
         <>
-          <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-3">
+          <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
             <label className="flex flex-col gap-1.5">
               <span className={label}>Company name</span>
               <input
                 value={company}
                 onChange={(e) => setCompany(e.target.value)}
                 placeholder="HubSpot"
-                className={`w-52 ${inputClass}`}
+                className={`h-10 ${inputClass}`}
               />
             </label>
             <label className="flex flex-col gap-1.5">
@@ -480,15 +560,15 @@ export default function DraftForm({
                 value={website}
                 onChange={(e) => setWebsite(e.target.value)}
                 placeholder="hubspot.com"
-                className={`w-52 ${inputClass}`}
+                className={`h-10 ${inputClass}`}
               />
             </label>
-            <button type="submit" disabled={loading || !company.trim()} className={btnPrimary}>
+            <button type="submit" disabled={loading || !company.trim()} className={`h-10 ${btnPrimary}`}>
               {loading ? "Drafting…" : "Draft"}
             </button>
           </form>
           {error && (
-            <p className="mt-3 rounded-lg border border-red-900/40 bg-red-950/20 px-4 py-2.5 text-sm text-red-400">
+            <p className="mt-3 rounded-lg border border-danger/30 bg-danger/10 px-4 py-2.5 text-sm text-danger">
               {error}
             </p>
           )}
@@ -501,9 +581,7 @@ export default function DraftForm({
           <label className="flex flex-col gap-1.5">
             <span className={label}>
               One per line —{" "}
-              <span className="font-mono normal-case tracking-normal text-[#a1a1aa]">
-                Company,website.com
-              </span>
+              <span className="normal-case tracking-normal text-muted">Company,website.com</span>
             </span>
             <textarea
               value={batchText}
@@ -511,10 +589,10 @@ export default function DraftForm({
               placeholder={"HubSpot,hubspot.com\nSalesforce,salesforce.com\nOutreach,outreach.io"}
               rows={6}
               disabled={batchRunning}
-              className={`max-w-md font-mono ${inputClass} disabled:opacity-50`}
+              className={`font-mono sm:max-w-md ${inputClass} disabled:opacity-50`}
             />
           </label>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={handleBatchRun}
               disabled={batchRunning || !batchText.trim()}
@@ -523,7 +601,7 @@ export default function DraftForm({
               {batchRunning ? `Running… (${batchDone}/${batchTotal})` : "Run batch"}
             </button>
             {batchSkipped > 0 && (
-              <span className="text-xs text-zinc-600">
+              <span className="text-xs text-subtle">
                 {batchSkipped} duplicate {batchSkipped === 1 ? "line" : "lines"} skipped
               </span>
             )}
@@ -537,9 +615,7 @@ export default function DraftForm({
           <label className="flex flex-col gap-1.5">
             <span className={label}>
               One per line —{" "}
-              <span className="font-mono normal-case tracking-normal text-[#a1a1aa]">
-                Company,website.com
-              </span>
+              <span className="normal-case tracking-normal text-muted">Company,website.com</span>
             </span>
             <textarea
               value={signalText}
@@ -547,10 +623,10 @@ export default function DraftForm({
               placeholder={"ASML,asml.com\nNotion,notion.so\nPipedrive,pipedrive.com"}
               rows={6}
               disabled={signalRunning}
-              className={`max-w-md font-mono ${inputClass} disabled:opacity-50`}
+              className={`font-mono sm:max-w-md ${inputClass} disabled:opacity-50`}
             />
           </label>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={handleSignalRun}
               disabled={signalRunning || !signalText.trim()}
@@ -559,7 +635,7 @@ export default function DraftForm({
               {signalRunning ? `Researching… (${signalDone}/${signalTotal})` : "Run signals"}
             </button>
             {signalSkipped > 0 && (
-              <span className="text-xs text-zinc-600">
+              <span className="text-xs text-subtle">
                 {signalSkipped} duplicate {signalSkipped === 1 ? "line" : "lines"} skipped
               </span>
             )}
@@ -571,41 +647,53 @@ export default function DraftForm({
       {(mode === "single" || mode === "batch") && (
         <div className="mt-10 flex flex-col gap-3">
           {rows.length > 0 && (
-            <div className="flex justify-end mb-1">
-              <button onClick={exportProspectsCsv} className="flex items-center gap-1.5 rounded-md border border-[#27272a] px-3 py-1.5 text-xs text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white transition-all duration-200">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-                </svg>
+            <div className="mb-1 flex items-center justify-between gap-3">
+              <span className={label}>
+                {rows.length} {rows.length === 1 ? "prospect" : "prospects"}
+                {hasMore ? "+" : ""}
+              </span>
+              <button onClick={exportProspectsCsv} className={btnGhost}>
+                <DownloadIcon />
                 Export CSV
               </button>
             </div>
           )}
+
+          {mode === "single" && loading && (
+            <div className={card}>
+              <div className={`${accentBar} bg-accent animate-pulse`} />
+              <p className="text-base font-semibold tracking-tight text-fg">{company}</p>
+              <div className="mt-3">
+                <ResearchingLine verb="researching" />
+              </div>
+            </div>
+          )}
+
           {batchQueue.map((entry) => {
-            const base =
-              "relative overflow-hidden rounded-xl border border-[#27272a] bg-[#18181b] p-6 " +
-              "shadow-[0_2px_16px_rgba(0,0,0,0.5)] animate-fade-slide-in";
             if (entry.status === "loading") {
               return (
-                <div key={entry.id} className={base}>
-                  <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-gradient-to-b from-indigo-500 to-violet-500" />
-                  <p className="text-sm font-bold tracking-tight text-white">{entry.company}</p>
-                  <p className="mt-2 text-xs italic text-[#a1a1aa]">Drafting…</p>
+                <div key={entry.id} className={card}>
+                  <div className={`${accentBar} bg-accent animate-pulse`} />
+                  <p className="text-base font-semibold tracking-tight text-fg">{entry.company}</p>
+                  <div className="mt-3">
+                    <ResearchingLine verb="researching" />
+                  </div>
                 </div>
               );
             }
             if (entry.status === "error") {
               return (
-                <div key={entry.id} className={base}>
-                  <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-gradient-to-b from-rose-500 to-red-600" />
+                <div key={entry.id} className={card}>
+                  <div className={`${accentBar} bg-danger`} />
                   <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-bold tracking-tight text-white">{entry.company}</p>
-                      <p className="mt-2 text-xs text-red-400">{entry.message}</p>
+                    <div className="min-w-0">
+                      <p className="text-base font-semibold tracking-tight text-fg">{entry.company}</p>
+                      <p className="mt-2 text-xs text-danger">{entry.message}</p>
                     </div>
                     <button
                       onClick={() => retryBatchEntry(entry)}
                       disabled={batchRunning || retryingIds.has(entry.id)}
-                      className="shrink-0 rounded-md border border-[#27272a] px-2.5 py-1 text-xs text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white disabled:cursor-not-allowed disabled:opacity-40 transition-all duration-200"
+                      className={`shrink-0 ${btnGhost}`}
                     >
                       {retryingIds.has(entry.id) ? "Retrying…" : "Retry"}
                     </button>
@@ -614,41 +702,37 @@ export default function DraftForm({
               );
             }
             return (
-              <div key={entry.id} className={base}>
-                <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-zinc-700" />
-                <p className="text-sm font-bold tracking-tight text-zinc-400">{entry.company}</p>
-                <p className="mt-2 text-xs text-zinc-600">Queued</p>
+              <div key={entry.id} className={card}>
+                <div className={`${accentBar} bg-line-strong`} />
+                <p className="text-base font-semibold tracking-tight text-muted">{entry.company}</p>
+                <p className="mt-2 font-mono text-[11px] text-subtle">queued</p>
               </div>
             );
           })}
 
-          {rows.length === 0 && batchQueue.length === 0 && (
-            <div className="flex flex-col items-center gap-3 py-20 text-zinc-700">
+          {rows.length === 0 && batchQueue.length === 0 && !loading && (
+            <div className="flex flex-col items-center gap-3 py-20 text-subtle">
               <EmptyIcon />
               <p className="text-sm">No prospects yet — research your first company above.</p>
             </div>
           )}
 
           {rows.map((row) => (
-            <div
-              key={row.id}
-              className="relative overflow-hidden rounded-xl border border-[#27272a] bg-[#18181b] p-6 shadow-[0_2px_16px_rgba(0,0,0,0.5)] hover:border-[#3f3f46] transition-all duration-200 animate-fade-slide-in"
-            >
-              <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-gradient-to-b from-indigo-500 to-violet-500" />
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-3">
-                <span className="text-base font-bold tracking-tight text-white">{row.companyName}</span>
-                <span className="text-zinc-600">·</span>
-                <span className="text-xs text-[#a1a1aa]">{row.targetRole}</span>
+            <div key={row.id} className={`${card} transition-colors duration-200 hover:border-line-strong`}>
+              {/* Accent marks only what was drafted this session; saved rows stay quiet. */}
+              <div className={`${accentBar} ${row.searches ? "bg-accent" : "bg-line-strong"}`} />
+              <div className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="text-base font-semibold tracking-tight text-fg">{row.companyName}</span>
+                <span className="text-subtle">·</span>
+                <span className="text-xs text-muted">{row.targetRole}</span>
                 {row.signalSource && isHttpUrl(row.signalSource) && (
                   <>
-                    <span className="text-zinc-600">·</span>
-                    <a href={row.signalSource} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-400 hover:text-indigo-300 hover:underline transition-all duration-200">
-                      source ↗
-                    </a>
+                    <span className="text-subtle">·</span>
+                    <SourceLink href={row.signalSource} />
                   </>
                 )}
-                <span className="ml-auto flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-zinc-500">
-                  <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[row.status] ?? "bg-zinc-500"}`} />
+                <span className="ml-auto flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-subtle">
+                  <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[row.status] ?? "bg-subtle"}`} />
                   {STATUS_LABEL[row.status] ?? row.status}
                 </span>
               </div>
@@ -706,13 +790,9 @@ export default function DraftForm({
                       className={inputClass}
                     />
                   </label>
-                  {editError && <p className="text-xs text-red-400">{editError}</p>}
+                  {editError && <p className="text-xs text-danger">{editError}</p>}
                   <div className="flex justify-end gap-2">
-                    <button
-                      onClick={cancelEdit}
-                      disabled={editSaving}
-                      className="rounded-md border border-[#27272a] px-3 py-1.5 text-xs font-medium text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white disabled:cursor-not-allowed disabled:opacity-40 transition-all duration-200"
-                    >
+                    <button onClick={cancelEdit} disabled={editSaving} className={btnGhost}>
                       Cancel
                     </button>
                     <button onClick={() => saveEdit(row.id)} disabled={editSaving} className={btnPrimary}>
@@ -722,20 +802,23 @@ export default function DraftForm({
                 </div>
               ) : (
                 <>
+                  {row.searches && row.searches.length > 0 && (
+                    <div className="mb-4">
+                      <p className={`${label} mb-1.5`}>Research</p>
+                      <ResearchTrace searches={row.searches} />
+                    </div>
+                  )}
                   <div className="mb-4">
                     <p className={`${label} mb-1.5`}>Signal</p>
-                    <p className="text-xs leading-relaxed text-[#a1a1aa]">{row.signal}</p>
+                    <p className="text-sm leading-relaxed text-muted">{row.signal}</p>
                   </div>
-                  <div className="rounded-lg bg-[#1e1e22] px-4 py-4">
+                  <div className="rounded-lg bg-surface-2 px-4 py-4">
                     <p className={`${label} mb-2`}>Opener</p>
-                    <p className="text-sm leading-relaxed text-[#fafafa]">{row.opener}</p>
+                    <p className="text-[15px] leading-relaxed text-fg">{row.opener}</p>
                   </div>
-                  <div className="mt-4 flex justify-end gap-2">
+                  <div className="mt-4 flex flex-wrap justify-end gap-2">
                     {NEXT_STATUS[row.status] && (
-                      <button
-                        onClick={() => advanceStatus(row)}
-                        className="rounded-md border border-[#27272a] px-3 py-1.5 text-xs font-medium text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white active:scale-95 transition-all duration-200"
-                      >
+                      <button onClick={() => advanceStatus(row)} className={btnGhost}>
                         Mark {STATUS_LABEL[NEXT_STATUS[row.status]]}
                       </button>
                     )}
@@ -743,24 +826,24 @@ export default function DraftForm({
                       onClick={() => startEdit(row)}
                       disabled={editingId !== null}
                       title={editingId !== null ? "Finish or cancel the current edit first" : undefined}
-                      className="rounded-md border border-[#27272a] px-3 py-1.5 text-xs font-medium text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white disabled:cursor-not-allowed disabled:opacity-40 active:scale-95 transition-all duration-200"
+                      className={btnGhost}
                     >
                       Edit
                     </button>
                     <button
                       onClick={() => deleteRow(row)}
                       disabled={deletingId === row.id || editingId !== null}
-                      className="rounded-md border border-[#27272a] px-3 py-1.5 text-xs font-medium text-[#a1a1aa] hover:border-red-800/60 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40 active:scale-95 transition-all duration-200"
+                      className={`${btnGhost} hover:border-danger/50 hover:text-danger`}
                     >
                       {deletingId === row.id ? "Deleting…" : "Delete"}
                     </button>
                     <button
                       onClick={() => copyOpener(row)}
-                      className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium active:scale-95 transition-all duration-200 ${
+                      className={
                         copiedId === row.id
-                          ? "border-emerald-700/50 bg-emerald-950/30 text-emerald-400"
-                          : "border-[#27272a] text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white"
-                      }`}
+                          ? `${btnGhost} border-success/40 bg-success/10 text-success hover:border-success/40 hover:text-success`
+                          : btnGhost
+                      }
                     >
                       {copiedId === row.id ? <><CheckIcon />Copied!</> : <><CopyIcon />Copy</>}
                     </button>
@@ -772,11 +855,7 @@ export default function DraftForm({
 
           {hasMore && rows.length > 0 && (
             <div className="flex justify-center pt-2">
-              <button
-                onClick={loadMore}
-                disabled={loadingMore}
-                className="rounded-lg border border-[#27272a] px-4 py-2 text-sm text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white disabled:cursor-not-allowed disabled:opacity-40 transition-all duration-200"
-              >
+              <button onClick={loadMore} disabled={loadingMore} className={`${btnGhost} px-4 py-2 text-sm`}>
                 {loadingMore ? "Loading…" : "Load more"}
               </button>
             </div>
@@ -788,25 +867,23 @@ export default function DraftForm({
       {mode === "signals" && (
         <div className="mt-8">
           {signalResults.length > 0 && (
-            <div className="flex justify-end mb-3">
-              <button onClick={exportSignalsCsv} className="flex items-center gap-1.5 rounded-md border border-[#27272a] px-3 py-1.5 text-xs text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white transition-all duration-200">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-                </svg>
+            <div className="mb-3 flex justify-end">
+              <button onClick={exportSignalsCsv} className={btnGhost}>
+                <DownloadIcon />
                 Export CSV
               </button>
             </div>
           )}
           {signalQueue.length === 0 && signalResults.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 py-20 text-zinc-700">
+            <div className="flex flex-col items-center gap-3 py-20 text-subtle">
               <EmptyIcon />
               <p className="text-sm">No signals yet — paste companies above and run.</p>
             </div>
           ) : (
-            <div className="overflow-x-auto rounded-xl border border-[#27272a]">
+            <div className="overflow-x-auto rounded-xl border border-line">
               <table className="w-full border-collapse text-left">
                 <thead>
-                  <tr className="border-b border-[#27272a] bg-[#18181b]">
+                  <tr className="border-b border-line bg-surface-2">
                     <th className={`${thClass} pl-5`}>Company</th>
                     <th className={thClass}>Score</th>
                     <th className={thClass}>Signal</th>
@@ -817,61 +894,67 @@ export default function DraftForm({
                 <tbody>
                   {/* In-flight queue entries */}
                   {signalQueue.map((entry) => (
-                    <tr key={entry.id} className="border-b border-[#27272a] bg-[#0f0f12]">
-                      <td className={`${tdClass} pl-5 font-semibold text-white`}>{entry.company}</td>
+                    <tr key={entry.id} className="border-b border-line bg-bg">
+                      <td className={`${tdClass} pl-5 font-semibold text-fg`}>{entry.company}</td>
                       {entry.status === "loading" ? (
-                        <td colSpan={4} className={`${tdClass} italic text-[#a1a1aa]`}>Researching…</td>
+                        <td colSpan={4} className={tdClass}>
+                          <ResearchingLine verb="researching" />
+                        </td>
                       ) : entry.status === "error" ? (
-                        <td colSpan={4} className={`${tdClass} text-red-400`}>
+                        <td colSpan={4} className={`${tdClass} text-danger`}>
                           <div className="flex items-center justify-between gap-3">
                             <span>{entry.message}</span>
                             <button
                               onClick={() => retrySignalEntry(entry)}
                               disabled={signalRunning || retryingIds.has(entry.id)}
-                              className="shrink-0 rounded-md border border-[#27272a] px-2.5 py-1 text-xs text-[#a1a1aa] hover:border-[#3f3f46] hover:text-white disabled:cursor-not-allowed disabled:opacity-40 transition-all duration-200"
+                              className={`shrink-0 ${btnGhost}`}
                             >
                               {retryingIds.has(entry.id) ? "Retrying…" : "Retry"}
                             </button>
                           </div>
                         </td>
                       ) : (
-                        <td colSpan={4} className={`${tdClass} text-zinc-600`}>Queued</td>
+                        <td colSpan={4} className={`${tdClass} font-mono text-[11px] text-subtle`}>queued</td>
                       )}
                     </tr>
                   ))}
                   {/* Completed results sorted by score descending */}
                   {sortedSignals.map((result) => (
-                    <tr key={result.id} className="border-b border-[#27272a] bg-[#18181b] hover:bg-[#1e1e22] transition-colors duration-150 animate-fade-slide-in">
-                      <td className={`${tdClass} pl-5 font-semibold text-white`}>{result.companyName}</td>
+                    <tr key={result.id} className="border-b border-line bg-surface transition-colors duration-150 hover:bg-surface-2 animate-fade-slide-in">
+                      <td className={`${tdClass} pl-5 font-semibold text-fg`}>{result.companyName}</td>
                       <td className={tdClass}>
                         <div className="flex items-baseline gap-2">
-                          <span className={`text-xl font-bold tabular-nums ${scoreColor(result.total)}`}>
+                          <span className={`font-mono text-xl font-semibold tabular-nums ${scoreColor(result.total)}`}>
                             {result.total}
                           </span>
-                          <span className="font-mono text-[10px] text-zinc-600 whitespace-nowrap">
+                          <span className="whitespace-nowrap font-mono text-[10px] text-subtle">
                             R{result.recency} T{result.triggerStrength} S{result.specificity}
                           </span>
                         </div>
-                        <p className="mt-1 text-[10px] leading-snug text-zinc-600 max-w-[160px]">
+                        <p className="mt-1 max-w-[160px] text-[11px] leading-snug text-subtle">
                           {result.scoreReason}
                         </p>
                       </td>
-                      <td className={`${tdClass} text-[#a1a1aa] max-w-xs`}>
+                      <td className={`${tdClass} max-w-xs text-muted`}>
                         <p className="leading-relaxed">{result.signal}</p>
+                        {result.searches && result.searches.length > 0 && (
+                          <details className="group mt-2">
+                            <summary className="cursor-pointer list-none font-mono text-[11px] text-subtle transition-colors duration-200 hover:text-fg [&::-webkit-details-marker]:hidden">
+                              <span className="inline-block text-accent transition-transform duration-200 group-open:rotate-90">›</span>{" "}
+                              {result.searches.length} web {result.searches.length === 1 ? "search" : "searches"}
+                            </summary>
+                            <ResearchTrace searches={result.searches} compact className="mt-1.5 pl-3" />
+                          </details>
+                        )}
                       </td>
-                      <td className={`${tdClass} text-[#a1a1aa] whitespace-nowrap`}>{result.targetRole}</td>
+                      <td className={`${tdClass} whitespace-nowrap text-muted`}>{result.targetRole}</td>
                       <td className={tdClass}>
                         {result.signalSource && isHttpUrl(result.signalSource) ? (
-                          <a
-                            href={result.signalSource}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-indigo-400 hover:text-indigo-300 hover:underline transition-all duration-200 whitespace-nowrap"
-                          >
-                            source ↗
-                          </a>
+                          <span className="whitespace-nowrap">
+                            <SourceLink href={result.signalSource} />
+                          </span>
                         ) : (
-                          <span className="text-zinc-700">—</span>
+                          <span className="text-subtle">—</span>
                         )}
                       </td>
                     </tr>

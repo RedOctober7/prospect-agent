@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isHttpUrl } from "./url";
+import { isHttpUrl, sourceLabel } from "./url";
 
 describe("isHttpUrl", () => {
   it("accepts https and http URLs", () => {
@@ -20,5 +20,17 @@ describe("isHttpUrl", () => {
   it("rejects empty strings and plain text", () => {
     expect(isHttpUrl("")).toBe(false);
     expect(isHttpUrl("not a url at all")).toBe(false);
+  });
+});
+
+describe("sourceLabel", () => {
+  it("shows the hostname without www.", () => {
+    expect(sourceLabel("https://www.techcrunch.com/2026/01/acme-raises-seed")).toBe("techcrunch.com");
+    expect(sourceLabel("http://blog.example.com/post")).toBe("blog.example.com");
+  });
+
+  it("falls back to 'source' for anything that isn't http(s)", () => {
+    expect(sourceLabel("javascript:alert(1)")).toBe("source");
+    expect(sourceLabel("not a url")).toBe("source");
   });
 });

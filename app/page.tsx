@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { PAGE_SIZE, prospectListSelect, paginate } from "@/lib/prospects";
 import DraftForm from "./draft-form";
+import ThemeToggle from "./theme-toggle";
 
 export const dynamic = "force-dynamic";
 
@@ -13,18 +14,19 @@ export default async function Home() {
   const { items: prospects, hasMore, nextCursor } = paginate(items);
 
   return (
-    <main className="min-h-screen bg-[#0f0f12]">
-      <div className="mx-auto max-w-3xl px-6 py-12">
-        <header className="mb-10">
-          <div className="flex items-center gap-2.5">
-            <div className="h-2 w-2 rounded-full bg-blue-500" />
-            <h1 className="text-base font-semibold tracking-tight text-white">
-              Prospect Agent
-            </h1>
+    <main className="min-h-screen bg-bg">
+      <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 sm:py-14">
+        <header className="mb-10 flex items-start justify-between gap-4">
+          <div>
+            <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-subtle">
+              research <span className="text-accent">→</span> signal <span className="text-accent">→</span> opener
+            </p>
+            <h1 className="mt-2 text-2xl font-semibold tracking-tight text-fg">Prospect Agent</h1>
+            <p className="mt-1.5 text-sm text-muted">
+              Research a company and draft a cold opener from one real signal.
+            </p>
           </div>
-          <p className="mt-1.5 pl-[18px] text-sm text-zinc-600">
-            Research a company and draft a cold opener from one real signal.
-          </p>
+          <ThemeToggle />
         </header>
         <DraftForm initial={prospects} initialHasMore={hasMore} initialCursor={nextCursor} />
       </div>

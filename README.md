@@ -6,30 +6,46 @@ cold outreach opener built on that single fact. Also has a "signals" mode
 that scores a list of companies (recency / trigger strength / specificity)
 without drafting an opener, for prioritizing who to reach out to first.
 
+![Prospect Agent: a fresh draft with its research trace, dark theme](docs/screenshots/drafts-dark.png)
+
+<p>
+  <img src="docs/screenshots/drafts-light.png" alt="Light theme" width="49%" />
+  <img src="docs/screenshots/signals-dark.png" alt="Signals mode: companies ranked by signal score" width="49%" />
+</p>
+
+<sub>Screenshots use fictional example companies and sources.</sub>
+
 Features:
 
 - **Draft** — single company or a batch (one per line), each row with its
   own loading/retry state.
 - **Signals** — rank a list of companies by signal strength, no opener.
+- **Research trace** — each fresh draft or signal shows the web searches
+  the agent actually ran, so a rep can see what the signal is based on.
+  The trace isn't stored; saved prospects show their source link instead.
 - **CSV export** — download batch/signal results as `prospects-<date>.csv`.
 - **Saved prospects** — every draft is stored in Postgres; the list loads
   25 at a time ("load more", cursor-paginated) and each prospect can be
   edited (status `new` / `contacted` / `replied`, company, website,
   signal, source, opener) or deleted.
+- **Light / dark theme** — dark by default; the toggle in the header
+  remembers your choice in `localStorage`.
 
 ## API routes
 
 | Route | Method | What it does |
 |---|---|---|
-| `/api/draft` | POST | Research a company and draft an opener, then save it |
-| `/api/signal` | POST | Research and score a company's signal, no opener |
+| `/api/draft` | POST | Research a company and draft an opener, then save it. The response also carries `searches` (the web queries run) |
+| `/api/signal` | POST | Research and score a company's signal, no opener; includes `searches` |
 | `/api/prospects` | GET | List saved prospects (`?cursor=` for the next page) |
 | `/api/prospects/[id]` | PATCH | Update any subset of a prospect's fields |
 | `/api/prospects/[id]` | DELETE | Delete a prospect |
 
 ## Stack
 
-- Next.js (App Router) + TypeScript, Tailwind CSS
+- Next.js (App Router) + TypeScript, Tailwind CSS (colors are CSS-variable
+  tokens in `app/globals.css`, one set per theme)
+- Space Grotesk + JetBrains Mono via `next/font`
 - Prisma + PostgreSQL (Supabase)
 - Anthropic SDK (`claude-sonnet-5-5`, web search tool)
 - Zod for validating the model's JSON output
