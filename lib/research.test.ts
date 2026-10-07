@@ -10,7 +10,7 @@ vi.mock("@anthropic-ai/sdk", () => ({
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { z } from "zod";
-import { extractJson, extractSearches, extractText, researchAndDraft, researchSignal } from "./research";
+import { extractJson, extractSearches, extractText, researchAndDraft, researchSignal, userMessage } from "./research";
 
 beforeEach(() => {
   mockCreate.mockReset();
@@ -61,6 +61,14 @@ describe("extractText", () => {
   it("returns an empty string when there are no text blocks", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(extractText([{ type: "server_tool_use", id: "t1", name: "web_search", input: {} } as any])).toBe("");
+  });
+});
+
+describe("userMessage", () => {
+  it("starts with today's date so the model can judge recency", () => {
+    const msg = userMessage("Acme", "acme.com", new Date("2026-10-07T09:00:00Z"));
+    expect(msg.startsWith("Today's date: 2026-10-07\n")).toBe(true);
+    expect(msg).toContain("Company: Acme\nWebsite: acme.com");
   });
 });
 
@@ -136,6 +144,8 @@ describe("researchAndDraft (mocked Anthropic client)", () => {
 
     const draft = await researchAndDraft("Acme", "acme.com");
     expect(draft.companyName).toBe("Acme");
+    const sent = mockCreate.mock.calls[0][0];
+    expect(sent.messages[0].content).toMatch(/^Today's date: \d{4}-\d{2}-\d{2}\n/);
     expect(mockCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         model: "claude-sonnet-5-5",

@@ -52,6 +52,15 @@ export function extractText(content: Anthropic.Beta.BetaContentBlock[]): string 
 // trace so a rep can see what the signal is based on. Read defensively: the
 // block's input is loosely typed and a search without a string query is
 // simply skipped.
+// Today's date goes in the user message, not the system prompt, so the system
+// prompt stays byte-identical across days. Without it the model judges
+// "recent" against its own idea of the year (it searched for "2025" news in
+// October 2026 and drafted on an 11-month-old launch as if it were fresh).
+export function userMessage(company: string, website: string, now: Date = new Date()): string {
+  const today = now.toISOString().slice(0, 10);
+  return `Today's date: ${today}\nCompany: ${company}\nWebsite: ${website}\n\nResearch this company and return the JSON object described in your instructions.`;
+}
+
 export function extractSearches(content: Anthropic.Beta.BetaContentBlock[]): string[] {
   const queries: string[] = [];
   for (const b of content) {
@@ -100,6 +109,9 @@ Process:
    company: a funding round, a new product or feature, a hire or exec change,
    an expansion, a press mention, or a public job posting that signals a
    priority. Prefer the last 3-6 months.
+   Today's date is given in the user message. Judge "recent" against that
+   date, never against your own sense of what year it is, and search for the
+   latest news (put the current year in your queries), not a year you assume.
 2. Pick the role most likely to care about a sales rep's outreach
    (e.g. VP Sales, Head of RevOps, founder).
 3. Write a 2-3 sentence opener built on that one fact.
@@ -117,6 +129,9 @@ marketing. Hard rules:
 - Don't pitch a product. Earn the reply first.
 - Never invent a fact. If search turns up nothing specific and recent, say so
   in the signal field and write a plainer but still human opener.
+- If the best fact you can find is more than 6 months old, put its month and
+  year in the opener ("in November 2025", not "in November") so it can't be
+  read as fresh news.
 - signalSource must be the direct URL of the specific article or press release
   where the fact appears. A URL containing /news, /newsroom, /press, or pointing
   to any index or listing page is a failure — return "" instead. Only return a
@@ -193,7 +208,7 @@ export async function researchAndDraft(
     messages: [
       {
         role: "user",
-        content: `Company: ${company}\nWebsite: ${website}\n\nResearch this company and return the JSON object described in your instructions.`,
+        content: userMessage(company, website),
       },
     ],
     tools: [
@@ -213,10 +228,13 @@ Process:
    exec hire or departure, layoffs or restructuring, major expansion, new product
    line, notable partnership, or job postings that signal a priority shift.
    Prefer the last 3-6 months.
+   Today's date is given in the user message. Judge "recent" against that
+   date, never against your own sense of what year it is, and search for the
+   latest news (put the current year in your queries), not a year you assume.
 2. Pick the role most likely to care about a sales rep's outreach.
 3. Score the signal on three dimensions. Be stingy — use the full 1-5 range on each.
 
-RECENCY (1-5) — how fresh is the event?
+RECENCY (1-5) — how fresh is the event, counted back from today's date?
   5 = within the last month
   4 = 1-2 months ago
   3 = last quarter (2-3 months ago)
@@ -293,7 +311,7 @@ export async function researchSignal(
     messages: [
       {
         role: "user",
-        content: `Company: ${company}\nWebsite: ${website}\n\nResearch this company and return the JSON object described in your instructions.`,
+        content: userMessage(company, website),
       },
     ],
     tools: [

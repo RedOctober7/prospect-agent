@@ -935,7 +935,7 @@ export default function DraftForm({
                           {result.scoreReason}
                         </p>
                       </td>
-                      <td className={`${tdClass} max-w-xs text-muted`}>
+                      <td className={`${tdClass} min-w-[16rem] max-w-sm text-muted`}>
                         <p className="leading-relaxed">{result.signal}</p>
                         {result.searches && result.searches.length > 0 && (
                           <details className="group mt-2">
@@ -947,7 +947,9 @@ export default function DraftForm({
                           </details>
                         )}
                       </td>
-                      <td className={`${tdClass} whitespace-nowrap text-muted`}>{result.targetRole}</td>
+                      {/* Roles can come back long ("VP of Partnerships / Alliances (or ...)"),
+                          so let them wrap instead of starving the Signal column. */}
+                      <td className={`${tdClass} min-w-[8rem] max-w-[12rem] text-muted`}>{result.targetRole}</td>
                       <td className={tdClass}>
                         {result.signalSource && isHttpUrl(result.signalSource) ? (
                           <span className="whitespace-nowrap">
