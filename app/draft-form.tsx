@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { isHttpUrl, sourceLabel } from "@/lib/url";
 import { parseCompanyLines } from "@/lib/parseLines";
+import type { SearchTrace } from "@/lib/research";
 
 export type ProspectRow = {
   id: string;
@@ -14,7 +15,7 @@ export type ProspectRow = {
   opener: string;
   status: string;
   // Only present on drafts made in this session — searches aren't persisted.
-  searches?: string[];
+  searches?: SearchTrace[];
 };
 
 type EditableFields = {
@@ -57,7 +58,7 @@ type SignalResult = {
   specificity: number;
   total: number;
   scoreReason: string;
-  searches?: string[];
+  searches?: SearchTrace[];
 };
 
 type SignalEntry =
@@ -147,25 +148,33 @@ function ResearchingLine({ verb }: { verb: string }) {
 }
 
 // The research trace: the web searches the agent actually ran for this
-// draft, revealed one line at a time.
+// draft and how each one came back, revealed one line at a time.
 // `compact` drops the "web_search" label for narrow spots like table cells.
 function ResearchTrace({
   searches,
   compact = false,
   className = "",
 }: {
-  searches: string[];
+  searches: SearchTrace[];
   compact?: boolean;
   className?: string;
 }) {
   if (searches.length === 0) return null;
   return (
     <ol aria-label="Web searches the agent ran" className={`flex flex-col gap-1 font-mono text-[11px] leading-relaxed ${className}`}>
-      {searches.map((q, i) => (
+      {searches.map((s, i) => (
         <li key={i} className="flex gap-2 animate-trace-in" style={{ animationDelay: `${i * 90}ms` }}>
-          <span className="text-accent">›</span>
+          <span className={s.error ? "text-danger" : "text-accent"}>›</span>
           {!compact && <span className="shrink-0 text-subtle">web_search</span>}
-          <span className="min-w-0 break-words text-muted">&ldquo;{q}&rdquo;</span>
+          <span className="min-w-0 break-words text-muted">
+            &ldquo;{s.query}&rdquo;{" "}
+            {s.error ? (
+              <span className="text-danger">· {s.error}</span>
+            ) : s.results !== undefined ? (
+              <span className="text-subtle">· {s.results} {s.results === 1 ? "result" : "results"}</span>
+            ) : null}
+            {s.viaCode && <span className="text-subtle"> · via code</span>}
+          </span>
         </li>
       ))}
     </ol>
@@ -942,6 +951,11 @@ export default function DraftForm({
                             <summary className="cursor-pointer list-none font-mono text-[11px] text-subtle transition-colors duration-200 hover:text-fg [&::-webkit-details-marker]:hidden">
                               <span className="inline-block text-accent transition-transform duration-200 group-open:rotate-90">›</span>{" "}
                               {result.searches.length} web {result.searches.length === 1 ? "search" : "searches"}
+                              {result.searches.some((s) => s.error) && (
+                                <span className="text-danger">
+                                  {" "}· {result.searches.filter((s) => s.error).length} failed
+                                </span>
+                              )}
                             </summary>
                             <ResearchTrace searches={result.searches} compact className="mt-1.5 pl-3" />
                           </details>

@@ -83,7 +83,52 @@ describe("extractSearches", () => {
       { type: "server_tool_use", id: "t4", name: "web_search", input: { query: "  acme new vp sales " } },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ] as any;
-    expect(extractSearches(content)).toEqual(["acme funding 2026", "acme new vp sales"]);
+    expect(extractSearches(content).map((s) => s.query)).toEqual(["acme funding 2026", "acme new vp sales"]);
+  });
+
+  it("records each search's result count or error code", () => {
+    const content = [
+      { type: "server_tool_use", id: "t1", name: "web_search", input: { query: "acme funding 2026" } },
+      { type: "server_tool_use", id: "t2", name: "web_search", input: { query: "acme funding 2026" } },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "t1",
+        content: { type: "web_search_tool_result_error", error_code: "too_many_requests" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "t2",
+        content: [
+          { type: "web_search_result", url: "https://a", title: "a", encrypted_content: "", page_age: null },
+          { type: "web_search_result", url: "https://b", title: "b", encrypted_content: "", page_age: null },
+        ],
+      },
+      { type: "server_tool_use", id: "t3", name: "web_search", input: { query: "acme hires" } },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ] as any;
+    expect(extractSearches(content)).toEqual([
+      { query: "acme funding 2026", error: "too_many_requests" },
+      { query: "acme funding 2026", results: 2 },
+      { query: "acme hires" },
+    ]);
+  });
+
+  it("flags searches run from inside code execution", () => {
+    const content = [
+      {
+        type: "server_tool_use",
+        id: "t1",
+        name: "web_search",
+        input: { query: "acme news" },
+        caller: { type: "code_execution_20260120", tool_id: "c1" },
+      },
+      { type: "server_tool_use", id: "t2", name: "web_search", input: { query: "acme hires" }, caller: { type: "direct" } },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ] as any;
+    expect(extractSearches(content)).toEqual([
+      { query: "acme news", viaCode: true },
+      { query: "acme hires" },
+    ]);
   });
 });
 

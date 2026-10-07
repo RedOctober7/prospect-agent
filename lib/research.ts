@@ -48,10 +48,6 @@ export function extractText(content: Anthropic.Beta.BetaContentBlock[]): string 
     .join("\n");
 }
 
-// The web searches the model ran, in order — shown in the UI as a research
-// trace so a rep can see what the signal is based on. Read defensively: the
-// block's input is loosely typed and a search without a string query is
-// simply skipped.
 // Today's date goes in the user message, not the system prompt, so the system
 // prompt stays byte-identical across days. Without it the model judges
 // "recent" against its own idea of the year (it searched for "2025" news in
@@ -61,14 +57,53 @@ export function userMessage(company: string, website: string, now: Date = new Da
   return `Today's date: ${today}\nCompany: ${company}\nWebsite: ${website}\n\nResearch this company and return the JSON object described in your instructions.`;
 }
 
-export function extractSearches(content: Anthropic.Beta.BetaContentBlock[]): string[] {
-  const queries: string[] = [];
+export type SearchTrace = {
+  query: string;
+  // How many results came back, or the tool's error code instead. A failed
+  // search is a normal 200 with an error object in place of the results, so
+  // without this a failure looks like a search that just found nothing.
+  results?: number;
+  error?: string;
+  // web_search_20260209 can run searches from inside its own code execution
+  // (dynamic filtering), not only as a direct model call.
+  viaCode?: boolean;
+};
+
+// The web searches the model ran, in order, with each one's outcome — shown
+// in the UI as a research trace and logged for diagnosis. Read defensively:
+// the block's input is loosely typed and a search without a string query is
+// simply skipped.
+export function extractSearches(content: Anthropic.Beta.BetaContentBlock[]): SearchTrace[] {
+  const traces: SearchTrace[] = [];
+  const byId = new Map<string, SearchTrace>();
   for (const b of content) {
-    if (b.type !== "server_tool_use" || b.name !== "web_search") continue;
-    const query = (b.input as { query?: unknown } | null)?.query;
-    if (typeof query === "string" && query.trim()) queries.push(query.trim());
+    if (b.type === "server_tool_use" && b.name === "web_search") {
+      const query = (b.input as { query?: unknown } | null)?.query;
+      if (typeof query !== "string" || !query.trim()) continue;
+      const trace: SearchTrace = { query: query.trim() };
+      if (b.caller && b.caller.type !== "direct") trace.viaCode = true;
+      traces.push(trace);
+      byId.set(b.id, trace);
+    } else if (b.type === "web_search_tool_result") {
+      const trace = byId.get(b.tool_use_id);
+      if (!trace) continue;
+      if (Array.isArray(b.content)) trace.results = b.content.length;
+      else trace.error = b.content.error_code;
+    }
   }
-  return queries;
+  return traces;
+}
+
+// One line per research call in the server logs (Vercel → Logs), so search
+// failures can be diagnosed from a real run instead of guessed at.
+function logResearch(kind: string, company: string, msg: Anthropic.Beta.BetaMessage, searches: SearchTrace[]): void {
+  const summary = searches
+    .map((s) => `"${s.query}" ${s.error ? `error:${s.error}` : `${s.results ?? "?"} results`}${s.viaCode ? " (via code)" : ""}`)
+    .join(" | ");
+  console.log(
+    `[research] ${kind} "${company}" model=${msg.model} stop=${msg.stop_reason} ` +
+      `web_search_requests=${msg.usage?.server_tool_use?.web_search_requests ?? "?"} searches: ${summary || "none"}`
+  );
 }
 
 // Defensive parse: strip code fences, then slice from the first { to the
@@ -204,7 +239,7 @@ export const ProspectDraftSchema = z.object({
 });
 
 export type ProspectDraft = z.infer<typeof ProspectDraftSchema>;
-export type Researched<T> = T & { searches: string[] };
+export type Researched<T> = T & { searches: SearchTrace[] };
 
 export async function researchAndDraft(
   company: string,
@@ -227,9 +262,12 @@ export async function researchAndDraft(
     ],
   });
 
+  // Log before anything can throw, so failed runs leave a trace too.
+  const searches = extractSearches(msg.content);
+  logResearch("draft", company, msg, searches);
   assertNotRefused(msg);
   const draft = extractJson(extractText(msg.content), ProspectDraftSchema);
-  return { ...draft, searches: extractSearches(msg.content) };
+  return { ...draft, searches };
 }
 
 const SIGNAL_SYSTEM = `You research a company and score the quality of their best recent signal for cold outreach.
@@ -336,7 +374,10 @@ export async function researchSignal(
     ],
   });
 
+  // Log before anything can throw, so failed runs leave a trace too.
+  const searches = extractSearches(msg.content);
+  logResearch("signal", company, msg, searches);
   assertNotRefused(msg);
   const signal = extractJson(extractText(msg.content), SignalDraftSchema);
-  return { ...signal, searches: extractSearches(msg.content) };
+  return { ...signal, searches };
 }

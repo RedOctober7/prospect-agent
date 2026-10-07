@@ -21,7 +21,8 @@ Features:
   own loading/retry state.
 - **Signals** — rank a list of companies by signal strength, no opener.
 - **Research trace** — each fresh draft or signal shows the web searches
-  the agent actually ran, so a rep can see what the signal is based on.
+  the agent actually ran and how each came back (result count, or the
+  error code in red), so a rep can see what the signal is based on.
   The trace isn't stored; saved prospects show their source link instead.
 - **CSV export** — download batch/signal results as `prospects-<date>.csv`.
 - **Saved prospects** — every draft is stored in Postgres; the list loads
@@ -35,8 +36,8 @@ Features:
 
 | Route | Method | What it does |
 |---|---|---|
-| `/api/draft` | POST | Research a company and draft an opener, then save it. The response also carries `searches` (the web queries run) |
-| `/api/signal` | POST | Research and score a company's signal, no opener; includes `searches` |
+| `/api/draft` | POST | Research a company and draft an opener, then save it. The response also carries `searches`: each web query run, with its result count or error code |
+| `/api/signal` | POST | Research and score a company's signal, no opener; includes `searches` (same shape) |
 | `/api/prospects` | GET | List saved prospects (`?cursor=` for the next page) |
 | `/api/prospects/[id]` | PATCH | Update any subset of a prospect's fields |
 | `/api/prospects/[id]` | DELETE | Delete a prospect |
@@ -140,6 +141,11 @@ tests would need a test database wired into CI.
   `unrs-resolver`. npm 11 only warns about unapproved scripts; npm 12
   skips them. Check `npm install-scripts ls` (npm 12) after adding a
   dependency that has an install script.
+- Each research call logs one line to the server logs (Vercel → Logs):
+  `[research] draft "Acme" model=… stop=… web_search_requests=… searches:
+  "q" 8 results | "q2" error:too_many_requests`. A failed web search is a
+  normal 200 with an error code in place of results, so this (and the
+  trace in the UI) is where failures show up.
 - A research call can run up to 3 web searches per company; the API
   routes set `maxDuration = 60` to give it room.
 
