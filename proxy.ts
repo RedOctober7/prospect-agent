@@ -1,47 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
-import { timingSafeEqual } from "crypto";
+import { SESSION_COOKIE, getAuthConfig, verifySessionToken } from "@/lib/session";
 
 // Next.js 16 renamed middleware.ts -> proxy.ts (exported fn: proxy, not
 // middleware). Runs on the Node.js runtime, so `crypto` is available.
 
-function safeEqual(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  // timingSafeEqual throws on mismatched lengths, so pad instead of
-  // short-circuiting on a public length check.
-  if (bufA.length !== bufB.length) {
-    return false;
-  }
-  return timingSafeEqual(bufA, bufB);
-}
+const PUBLIC_PATHS = new Set(["/login", "/api/login"]);
 
-// Gates the whole app (UI + API routes) behind HTTP Basic Auth so a
-// scraped/shared URL can't burn the Anthropic API budget. Only enforced
-// when both env vars are set, so local dev works without extra setup —
-// set APP_BASIC_AUTH_USER / APP_BASIC_AUTH_PASSWORD before any real deploy.
+// Gates the whole app (UI + API routes) behind the login page when
+// APP_BASIC_AUTH_USER / APP_BASIC_AUTH_PASSWORD are set; see lib/session.ts.
 export function proxy(req: NextRequest) {
-  const user = process.env.APP_BASIC_AUTH_USER;
-  const pass = process.env.APP_BASIC_AUTH_PASSWORD;
-
-  if (!user || !pass) {
+  const auth = getAuthConfig();
+  if (!auth) {
     return NextResponse.next();
   }
 
-  const authHeader = req.headers.get("authorization");
-  if (authHeader?.startsWith("Basic ")) {
-    const decoded = Buffer.from(authHeader.slice(6), "base64").toString("utf-8");
-    const sepIdx = decoded.indexOf(":");
-    const suppliedUser = sepIdx >= 0 ? decoded.slice(0, sepIdx) : decoded;
-    const suppliedPass = sepIdx >= 0 ? decoded.slice(sepIdx + 1) : "";
-    if (safeEqual(suppliedUser, user) && safeEqual(suppliedPass, pass)) {
-      return NextResponse.next();
+  const { pathname } = req.nextUrl;
+  const signedIn = verifySessionToken(req.cookies.get(SESSION_COOKIE)?.value, auth);
+
+  if (PUBLIC_PATHS.has(pathname)) {
+    // Already signed in? Skip the login page.
+    if (signedIn && pathname === "/login") {
+      return NextResponse.redirect(new URL("/", req.url));
     }
+    return NextResponse.next();
   }
 
-  return new NextResponse("Authentication required.", {
-    status: 401,
-    headers: { "WWW-Authenticate": 'Basic realm="Prospect Agent"' },
-  });
+  if (signedIn) {
+    return NextResponse.next();
+  }
+
+  // API callers get a status they can handle; pages get the login screen.
+  if (pathname.startsWith("/api/")) {
+    return NextResponse.json({ error: "Not signed in." }, { status: 401 });
+  }
+  return NextResponse.redirect(new URL("/login", req.url));
 }
 
 export const config = {

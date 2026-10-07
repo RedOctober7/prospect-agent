@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { PAGE_SIZE, prospectListSelect, paginate } from "@/lib/prospects";
 import DraftForm from "./draft-form";
 import ThemeToggle from "./theme-toggle";
+import { getAuthConfig } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,19 @@ export default async function Home() {
               Research a company and draft a cold opener from one real signal.
             </p>
           </div>
-          <ThemeToggle />
+          <div className="flex items-center gap-2">
+            {getAuthConfig() && (
+              <form method="post" action="/api/logout">
+                <button
+                  type="submit"
+                  className="h-8 rounded-md border border-line px-3 font-mono text-[11px] text-muted transition-all duration-200 hover:border-line-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 active:scale-95"
+                >
+                  sign out
+                </button>
+              </form>
+            )}
+            <ThemeToggle />
+          </div>
         </header>
         <DraftForm initial={prospects} initialHasMore={hasMore} initialCursor={nextCursor} />
       </div>
