@@ -8,3 +8,10 @@ export function isHttpUrl(value: string): boolean {
     return false;
   }
 }
+
+// Short label for a source link: the hostname without "www.", e.g.
+// "techcrunch.com". Falls back to "source" for anything that isn't http(s).
+export function sourceLabel(value: string): string {
+  if (!isHttpUrl(value)) return "source";
+  return new URL(value).hostname.replace(/^www\./, "");
+}

@@ -10,7 +10,7 @@ vi.mock("@anthropic-ai/sdk", () => ({
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { z } from "zod";
-import { extractJson, extractText, researchAndDraft, researchSignal } from "./research";
+import { extractJson, extractSearches, extractText, researchAndDraft, researchSignal } from "./research";
 
 beforeEach(() => {
   mockCreate.mockReset();
@@ -64,6 +64,21 @@ describe("extractText", () => {
   });
 });
 
+describe("extractSearches", () => {
+  it("returns web_search queries in order and skips everything else", () => {
+    const content = [
+      { type: "server_tool_use", id: "t1", name: "web_search", input: { query: "acme funding 2026" } },
+      { type: "web_search_tool_result", tool_use_id: "t1", content: [] },
+      { type: "server_tool_use", id: "t2", name: "web_fetch", input: { url: "https://acme.com" } },
+      { type: "server_tool_use", id: "t3", name: "web_search", input: {} },
+      { type: "text", text: "done" },
+      { type: "server_tool_use", id: "t4", name: "web_search", input: { query: "  acme new vp sales " } },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ] as any;
+    expect(extractSearches(content)).toEqual(["acme funding 2026", "acme new vp sales"]);
+  });
+});
+
 // researchAndDraft/researchSignal wrap the Anthropic SDK — the module-level
 // mock above swaps it out so these run without a real API key or network
 // call, while still exercising the full extractText -> extractJson -> Zod
@@ -89,6 +104,7 @@ describe("researchAndDraft (mocked Anthropic client)", () => {
     const draft = await researchAndDraft("Acme", "acme.com");
     expect(draft.companyName).toBe("Acme");
     expect(draft.signalSource).toBe("https://techcrunch.com/acme-seed");
+    expect(draft.searches).toEqual([]);
     expect(mockCreate).toHaveBeenCalledTimes(1);
   });
 

@@ -36,7 +36,8 @@ export async function POST(req: Request) {
         opener: draft.opener,
       },
     });
-    return NextResponse.json(saved);
+    // Searches aren't persisted — they're the trace for this fresh draft only.
+    return NextResponse.json({ ...saved, searches: draft.searches });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Draft failed.";
     return NextResponse.json({ error: message }, { status: 500 });

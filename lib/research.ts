@@ -48,6 +48,20 @@ export function extractText(content: Anthropic.Beta.BetaContentBlock[]): string 
     .join("\n");
 }
 
+// The web searches the model ran, in order — shown in the UI as a research
+// trace so a rep can see what the signal is based on. Read defensively: the
+// block's input is loosely typed and a search without a string query is
+// simply skipped.
+export function extractSearches(content: Anthropic.Beta.BetaContentBlock[]): string[] {
+  const queries: string[] = [];
+  for (const b of content) {
+    if (b.type !== "server_tool_use" || b.name !== "web_search") continue;
+    const query = (b.input as { query?: unknown } | null)?.query;
+    if (typeof query === "string" && query.trim()) queries.push(query.trim());
+  }
+  return queries;
+}
+
 // Defensive parse: strip code fences, then slice from the first { to the
 // last } so any text the model adds before or after the object is ignored.
 // Validates against the given Zod schema so a malformed or incomplete
@@ -164,11 +178,12 @@ export const ProspectDraftSchema = z.object({
 });
 
 export type ProspectDraft = z.infer<typeof ProspectDraftSchema>;
+export type Researched<T> = T & { searches: string[] };
 
 export async function researchAndDraft(
   company: string,
   website: string
-): Promise<ProspectDraft> {
+): Promise<Researched<ProspectDraft>> {
   const msg = await getClient().beta.messages.create({
     ...FALLBACK,
     model: MODEL,
@@ -187,7 +202,8 @@ export async function researchAndDraft(
   });
 
   assertNotRefused(msg);
-  return extractJson(extractText(msg.content), ProspectDraftSchema);
+  const draft = extractJson(extractText(msg.content), ProspectDraftSchema);
+  return { ...draft, searches: extractSearches(msg.content) };
 }
 
 const SIGNAL_SYSTEM = `You research a company and score the quality of their best recent signal for cold outreach.
@@ -267,7 +283,7 @@ export type SignalDraft = z.infer<typeof SignalDraftSchema>;
 export async function researchSignal(
   company: string,
   website: string
-): Promise<SignalDraft> {
+): Promise<Researched<SignalDraft>> {
   const msg = await getClient().beta.messages.create({
     ...FALLBACK,
     model: MODEL,
@@ -286,5 +302,6 @@ export async function researchSignal(
   });
 
   assertNotRefused(msg);
-  return extractJson(extractText(msg.content), SignalDraftSchema);
+  const signal = extractJson(extractText(msg.content), SignalDraftSchema);
+  return { ...signal, searches: extractSearches(msg.content) };
 }
