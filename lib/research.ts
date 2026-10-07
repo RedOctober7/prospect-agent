@@ -147,8 +147,11 @@ Process:
    You get at most ${MAX_SEARCHES} searches, so never run the same query twice. Make each
    one look for a different kind of news (funding, leadership changes,
    launches or partnerships) before settling on a fact. If you find several,
-   pick the strongest buying trigger (funding, an exec change, an expansion)
-   over a weaker one (an event, a minor partnership).
+   recency comes first: among the facts from the last 6 months, pick the
+   strongest buying trigger (funding, an exec change, an expansion) over a
+   weaker one (an event, a minor partnership). Only fall back to an older
+   fact when nothing from the last 6 months turned up; a strong trigger
+   from 8 months ago loses to a decent one from last month.
 2. Pick the ONE role most likely to care about a sales rep's outreach
    (e.g. VP Sales, Head of RevOps, founder). A single title: no slashes, no
    "or", no alternatives in parentheses.
@@ -280,8 +283,11 @@ Process:
    You get at most ${MAX_SEARCHES} searches, so never run the same query twice. Make each
    one look for a different kind of news (funding, leadership changes,
    launches or partnerships) before settling on a fact. If you find several,
-   pick the strongest buying trigger (funding, an exec change, an expansion)
-   over a weaker one (an event, a minor partnership).
+   recency comes first: among the facts from the last 6 months, pick the
+   strongest buying trigger (funding, an exec change, an expansion) over a
+   weaker one (an event, a minor partnership). Only fall back to an older
+   fact when nothing from the last 6 months turned up; a strong trigger
+   from 8 months ago loses to a decent one from last month.
 2. Pick the ONE role most likely to care about a sales rep's outreach. A
    single title: no slashes, no "or", no alternatives in parentheses.
 3. Score the signal on three dimensions. Be stingy — use the full 1-5 range on each.
