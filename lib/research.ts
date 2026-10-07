@@ -1,5 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
+import type { SearchTrace } from "./searchTrace";
+
+export type { SearchTrace };
 
 // Lazily constructed so ANTHROPIC_API_KEY is read from the environment at call
 // time, not at import time. A standalone tsx script loads .env.local *after*
@@ -15,10 +18,16 @@ function getClient(): Anthropic {
 
 // Sonnet 5.5 thinks by default (adaptive) and thinking tokens count toward
 // max_tokens, so the caps below leave room for thinking plus the JSON reply.
-// Effort is set explicitly: "medium" keeps a research call (up to 3 web
-// searches) well inside the routes' 60s maxDuration.
+// Effort is set explicitly: "medium" keeps a research call (up to
+// MAX_SEARCHES web searches) inside the routes' 60s maxDuration.
 const MODEL = "claude-sonnet-5-5";
 const EFFORT = "medium";
+
+// web_search_20260209 runs its searches from inside its own code execution,
+// and in real runs it ran the same query twice back to back, each copy
+// counting against max_uses. At 3 that left only two distinct searches, so
+// the cap is 5 to leave room for varied queries.
+const MAX_SEARCHES = 5;
 
 // Server-side refusal fallback: if Sonnet 5.5's safety classifiers decline,
 // the API re-runs the same request on Anthropic's recommended substitute
@@ -56,18 +65,6 @@ export function userMessage(company: string, website: string, now: Date = new Da
   const today = now.toISOString().slice(0, 10);
   return `Today's date: ${today}\nCompany: ${company}\nWebsite: ${website}\n\nResearch this company and return the JSON object described in your instructions.`;
 }
-
-export type SearchTrace = {
-  query: string;
-  // How many results came back, or the tool's error code instead. A failed
-  // search is a normal 200 with an error object in place of the results, so
-  // without this a failure looks like a search that just found nothing.
-  results?: number;
-  error?: string;
-  // web_search_20260209 can run searches from inside its own code execution
-  // (dynamic filtering), not only as a direct model call.
-  viaCode?: boolean;
-};
 
 // The web searches the model ran, in order, with each one's outcome — shown
 // in the UI as a research trace and logged for diagnosis. Read defensively:
@@ -147,7 +144,7 @@ Process:
    Today's date is given in the user message. Judge "recent" against that
    date, never against your own sense of what year it is, and search for the
    latest news (put the current year in your queries), not a year you assume.
-   You get at most 3 searches, so never run the same query twice. Make each
+   You get at most ${MAX_SEARCHES} searches, so never run the same query twice. Make each
    one look for a different kind of news (funding, leadership changes,
    launches or partnerships) before settling on a fact. If you find several,
    pick the strongest buying trigger (funding, an exec change, an expansion)
@@ -258,7 +255,7 @@ export async function researchAndDraft(
       },
     ],
     tools: [
-      { type: "web_search_20260209", name: "web_search", max_uses: 3 },
+      { type: "web_search_20260209", name: "web_search", max_uses: MAX_SEARCHES },
     ],
   });
 
@@ -280,7 +277,7 @@ Process:
    Today's date is given in the user message. Judge "recent" against that
    date, never against your own sense of what year it is, and search for the
    latest news (put the current year in your queries), not a year you assume.
-   You get at most 3 searches, so never run the same query twice. Make each
+   You get at most ${MAX_SEARCHES} searches, so never run the same query twice. Make each
    one look for a different kind of news (funding, leadership changes,
    launches or partnerships) before settling on a fact. If you find several,
    pick the strongest buying trigger (funding, an exec change, an expansion)
@@ -370,7 +367,7 @@ export async function researchSignal(
       },
     ],
     tools: [
-      { type: "web_search_20260209", name: "web_search", max_uses: 3 },
+      { type: "web_search_20260209", name: "web_search", max_uses: MAX_SEARCHES },
     ],
   });
 

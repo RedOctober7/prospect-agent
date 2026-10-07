@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { isHttpUrl, sourceLabel } from "@/lib/url";
 import { parseCompanyLines } from "@/lib/parseLines";
-import type { SearchTrace } from "@/lib/research";
+import { groupRepeatedSearches, type SearchTrace } from "@/lib/searchTrace";
 
 export type ProspectRow = {
   id: string;
@@ -128,7 +128,7 @@ function DownloadIcon() {
 }
 
 // Seconds since mount — an honest progress signal while a research call
-// (up to 3 web searches) is in flight, instead of a fake step-by-step.
+// (up to 5 web searches) is in flight, instead of a fake step-by-step.
 function Elapsed() {
   const [seconds, setSeconds] = useState(0);
   useEffect(() => {
@@ -162,7 +162,7 @@ function ResearchTrace({
   if (searches.length === 0) return null;
   return (
     <ol aria-label="Web searches the agent ran" className={`flex flex-col gap-1 font-mono text-[11px] leading-relaxed ${className}`}>
-      {searches.map((s, i) => (
+      {groupRepeatedSearches(searches).map((s, i) => (
         <li key={i} className="flex gap-2 animate-trace-in" style={{ animationDelay: `${i * 90}ms` }}>
           <span className={s.error ? "text-danger" : "text-accent"}>›</span>
           {!compact && <span className="shrink-0 text-subtle">web_search</span>}
@@ -174,6 +174,7 @@ function ResearchTrace({
               <span className="text-subtle">· {s.results} {s.results === 1 ? "result" : "results"}</span>
             ) : null}
             {s.viaCode && <span className="text-subtle"> · via code</span>}
+            {s.count > 1 && <span className="text-subtle"> · ×{s.count}</span>}
           </span>
         </li>
       ))}
@@ -950,7 +951,10 @@ export default function DraftForm({
                           <details className="group mt-2">
                             <summary className="cursor-pointer list-none font-mono text-[11px] text-subtle transition-colors duration-200 hover:text-fg [&::-webkit-details-marker]:hidden">
                               <span className="inline-block text-accent transition-transform duration-200 group-open:rotate-90">›</span>{" "}
-                              {result.searches.length} web {result.searches.length === 1 ? "search" : "searches"}
+                              {(() => {
+                                const n = groupRepeatedSearches(result.searches).length;
+                                return `${n} web ${n === 1 ? "search" : "searches"}`;
+                              })()}
                               {result.searches.some((s) => s.error) && (
                                 <span className="text-danger">
                                   {" "}· {result.searches.filter((s) => s.error).length} failed
