@@ -146,7 +146,7 @@ tests would need a test database wired into CI.
   "q" 8 results | "q2" error:too_many_requests`. A failed web search is a
   normal 200 with an error code in place of results, so this (and the
   trace in the UI) is where failures show up.
-- A research call can run up to 3 web searches per company; the API
+- A research call can run up to 5 web searches per company; the API
   routes set `maxDuration = 60` to give it room.
 
 ## Notes

@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 
 // Prisma + the Anthropic SDK need the Node.js runtime, not edge.
 export const runtime = "nodejs";
-// A single research call can run up to 3 web searches; give it room.
+// A single research call can run up to 5 web searches; give it room.
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
