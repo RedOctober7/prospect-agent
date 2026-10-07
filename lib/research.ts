@@ -23,11 +23,21 @@ function getClient(): Anthropic {
 const MODEL = "claude-sonnet-5-5";
 const EFFORT = "medium";
 
-// web_search_20260209 runs its searches from inside its own code execution,
-// and in real runs it ran the same query twice back to back, each copy
-// counting against max_uses. At 3 that left only two distinct searches, so
-// the cap is 5 to leave room for varied queries.
+// Raised from 3 when web_search_20260209 ran the same query twice back to
+// back, each copy counting against max_uses. Kept at 5 for the basic-variant
+// experiment below so only the tool version changes between runs.
 const MAX_SEARCHES = 5;
+
+// Experiment (Oct 2026): the basic web search variant. web_search_20260209
+// filters results through its own code execution before the model sees them,
+// and on UiPath that filter sometimes hid recent news the same queries had
+// surfaced on other runs. The basic variant hands the model the results
+// directly. To switch back, set type to "web_search_20260209".
+const WEB_SEARCH_TOOL: Anthropic.Beta.BetaWebSearchTool20250305 | Anthropic.Beta.BetaWebSearchTool20260209 = {
+  type: "web_search_20250305",
+  name: "web_search",
+  max_uses: MAX_SEARCHES,
+};
 
 // Server-side refusal fallback: if Sonnet 5.5's safety classifiers decline,
 // the API re-runs the same request on Anthropic's recommended substitute
@@ -257,9 +267,7 @@ export async function researchAndDraft(
         content: userMessage(company, website),
       },
     ],
-    tools: [
-      { type: "web_search_20260209", name: "web_search", max_uses: MAX_SEARCHES },
-    ],
+    tools: [WEB_SEARCH_TOOL],
   });
 
   // Log before anything can throw, so failed runs leave a trace too.
@@ -372,9 +380,7 @@ export async function researchSignal(
         content: userMessage(company, website),
       },
     ],
-    tools: [
-      { type: "web_search_20260209", name: "web_search", max_uses: MAX_SEARCHES },
-    ],
+    tools: [WEB_SEARCH_TOOL],
   });
 
   // Log before anything can throw, so failed runs leave a trace too.
