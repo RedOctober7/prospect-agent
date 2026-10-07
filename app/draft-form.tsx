@@ -183,8 +183,10 @@ function ResearchTrace({
 }
 
 function SourceLink({ href }: { href: string }) {
-  // A <wbr> after each dot lets a long hostname wrap at a dot in a narrow
-  // column ("markets." / "financialcontent.com") instead of mid-word.
+  // A <wbr> after each dot lets a long hostname wrap at its dots in a narrow
+  // column ("↗ markets." / "financialcontent." / "com"). A browser won't break
+  // between a dot and a letter on its own, so without it the hostname stays
+  // on one line and widens the column.
   const parts = sourceLabel(href).split(".");
   return (
     <a
@@ -961,14 +963,17 @@ export default function DraftForm({
                             <summary className="cursor-pointer list-none font-mono text-[11px] text-subtle transition-colors duration-200 hover:text-fg [&::-webkit-details-marker]:hidden">
                               <span className="inline-block text-accent transition-transform duration-200 group-open:rotate-90">›</span>{" "}
                               {(() => {
-                                const n = groupRepeatedSearches(result.searches).length;
-                                return `${n} web ${n === 1 ? "search" : "searches"}`;
+                                // Count both numbers on the grouped list, so a
+                                // failed query run twice reads "1 search · 1 failed".
+                                const grouped = groupRepeatedSearches(result.searches);
+                                const failed = grouped.filter((s) => s.error).length;
+                                return (
+                                  <>
+                                    {`${grouped.length} web ${grouped.length === 1 ? "search" : "searches"}`}
+                                    {failed > 0 && <span className="text-danger"> · {failed} failed</span>}
+                                  </>
+                                );
                               })()}
-                              {result.searches.some((s) => s.error) && (
-                                <span className="text-danger">
-                                  {" "}· {result.searches.filter((s) => s.error).length} failed
-                                </span>
-                              )}
                             </summary>
                             <ResearchTrace searches={result.searches} compact className="mt-1.5 pl-3" />
                           </details>

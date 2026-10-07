@@ -21,24 +21,32 @@ Features:
   own loading/retry state and a live elapsed-seconds counter while the
   research runs.
 - **Signals** — rank a list of companies by signal strength, no opener.
+  Results aren't saved: they stay on the page until a reload or the next
+  run, so export them as CSV to keep them.
 - **Research trace** — each fresh draft or signal shows the web searches
   the agent actually ran and how each came back: the result count, or the
   error code in red. A query run twice in a row shows once with "×2". In
-  the signals table the trace is folded into a "N web searches · M failed"
-  line you can expand. The trace isn't stored; saved prospects show their
-  source link instead.
-- **Source links** — shown as the hostname (`techcrunch.com`), and only
-  when the URL is `http(s)`.
-- **CSV export** — download batch/signal results as `prospects-<date>.csv`.
-- **Saved prospects** — every draft is stored in Postgres; the list loads
-  25 at a time ("load more", cursor-paginated) and each prospect can be
-  edited (status `new` / `contacted` / `replied`, company, website,
-  signal, source, opener) or deleted.
+  the signals table the trace is folded into an expandable "N web
+  searches" line, with "· M failed" in red when any search failed. The
+  trace isn't stored, so after a reload a prospect shows its signal and
+  source link without it.
+- **Source links** — shown as the hostname (`techcrunch.com`), which wraps
+  at its dots in a narrow column. See [Notes](#notes) for when a source
+  gets a link.
+- **CSV export** — in Single/Batch, every prospect loaded in the list so
+  far; in Signals, the ranked results. Saved as `prospects-<YYYY-MM-DD>.csv`
+  (UTC date).
+- **Saved prospects** — every draft is stored in Postgres. The list loads
+  25 at a time ("load more", cursor-paginated). Each prospect can be
+  edited (company, website, target role, signal, source, opener), moved
+  from `new` to `contacted` to `replied` with its "Mark …" button, or
+  deleted.
 - **Sign-in** — a sign-in page gates the whole app (UI + API) once
   credentials are set, with a "sign out" button in the header. See
   [Sign-in](#sign-in).
-- **Light / dark theme** — dark by default; the toggle in the header
-  remembers your choice in `localStorage`.
+- **Light / dark theme** — dark by default. The toggle (in the header and
+  on the sign-in page) saves your choice in `localStorage`, and an inline
+  script applies it before first paint, so there's no flash.
 
 ## How the research works
 
@@ -82,7 +90,8 @@ How the agent picks the signal (both modes):
 How the opener is written (draft mode; the full rules are the `SYSTEM`
 prompt in `lib/research.ts`):
 
-- Opens with the fact, stated plainly. No "I saw", no flattery, no pitch,
+- States the fact plainly, usually up front (the structure varies, so
+  sometimes the question comes first). No "I saw", no flattery, no pitch,
   no meeting ask. Ends on one specific question about what might be
   breaking.
 - **Absolute dates** ("on September 21"), never relative ones ("last
@@ -101,7 +110,7 @@ prompt in `lib/research.ts`):
 | Route | Method | What it does |
 |---|---|---|
 | `/api/draft` | POST | Research a company and draft an opener, then save it. The response also carries `searches`: each web query run, with its result count or error code |
-| `/api/signal` | POST | Research and score a company's signal, no opener; includes `searches` (same shape) |
+| `/api/signal` | POST | Research and score a company's signal, no opener, not saved; includes `searches` (same shape) |
 | `/api/prospects` | GET | List saved prospects (`?cursor=` for the next page) |
 | `/api/prospects/[id]` | PATCH | Update any subset of a prospect's fields |
 | `/api/prospects/[id]` | DELETE | Delete a prospect |
@@ -114,8 +123,10 @@ prompt in `lib/research.ts`):
   CSS-variable tokens in `app/globals.css`, one set per theme)
 - Space Grotesk + JetBrains Mono via `next/font`
 - Prisma + PostgreSQL (Supabase)
-- Anthropic SDK (`claude-sonnet-5-5` on the beta Messages endpoint, web
-  search tool `web_search_20250305`)
+- Anthropic SDK ≥ 0.131 (`claude-sonnet-5-5` on the beta Messages
+  endpoint with the `server-side-fallback-2026-07-01` beta, web search
+  tool `web_search_20250305`). 0.131 is the first version that types the
+  fallback options.
 - Zod for validating the model's JSON output
 
 ## Setup
@@ -167,7 +178,7 @@ prompt in `lib/research.ts`):
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run test` | Run the unit test suite once (Vitest) |
 | `npm run test:watch` | Run the test suite in watch mode |
-| `npm run draft -- "Company" "website.com"` | Run the research+draft engine standalone from the terminal, no UI/DB. Prints the JSON result to stdout. |
+| `npm run draft -- "Company" "website.com"` | Run the research+draft engine standalone from the terminal, no UI/DB. Prints the `[research]` log line, then the JSON result (including `searches`), to stdout. |
 | `npm run prisma:generate` | Regenerate the Prisma client after a schema change |
 | `npm run prisma:migrate` | Run Prisma migrations against `.env.local` |
 | `npm run prisma:push` | Push the schema without creating a migration (quick local iteration) |
@@ -182,13 +193,16 @@ silent bugs:
   error code and "via code" flag, and the refusal fallback. Mocked against
   the Anthropic SDK, so no API key or network call is needed.
 - `lib/searchTrace.test.ts` — collapsing back-to-back repeated searches.
-- `lib/prospects.test.ts` — cursor pagination.
+- `lib/prospects.test.ts` — cursor pagination and the PATCH body schema
+  (`ProspectPatchSchema`).
 - `lib/parseLines.test.ts` — batch/signal line parsing and dedup.
 - `lib/url.test.ts` — the `signalSource` link-safety check and hostname
   label.
-- `lib/session.test.ts` — sign-in session tokens.
+- `lib/session.test.ts` — sign-in session tokens (expiry, tampering, a
+  changed password) and the `safeEqual` compare.
 
-They run in CI on every push and PR, after lint and typecheck.
+CI runs them on every pull request and every push to `master`, after lint
+and typecheck and before `npm run build`.
 
 Out of scope for now: the API route handlers themselves (`app/api/**`)
 aren't covered by automated tests — they were verified manually against a
@@ -200,17 +214,20 @@ tests would need a test database wired into CI.
 <img src="docs/screenshots/login-dark.png" alt="Sign-in page" width="60%" />
 
 - Turned on by setting both `APP_BASIC_AUTH_USER` and
-  `APP_BASIC_AUTH_PASSWORD`. With either one unset, the app is open and
-  `/login` redirects home.
+  `APP_BASIC_AUTH_PASSWORD` (the names are kept from the browser Basic
+  Auth prompt this page replaced); no other Vercel config is needed. With
+  either one unset, the app is open and `/login` redirects home.
 - Enforced by `proxy.ts` (Next.js 16's replacement for `middleware.ts`).
   Signed-out page requests redirect to `/login`; API requests get a 401.
+  Opening `/login` while signed in redirects home.
 - `/login` is a plain HTML form that posts to `/api/login`, so it works
-  without JavaScript. Both fields are checked in constant time, and a
+  without JavaScript. Both fields are always compared (with
+  `timingSafeEqual`, so timing doesn't show which one was wrong), and a
   wrong attempt waits 400ms before redirecting back with an error.
-- A successful sign-in sets an HttpOnly, SameSite=Lax session cookie: a
-  stateless HMAC-signed token valid for 30 days (`lib/session.ts`). The
-  signing key comes from the credentials, so changing either var signs
-  everyone out.
+- A successful sign-in sets an HttpOnly, SameSite=Lax session cookie
+  (Secure in production): a stateless HMAC-signed token valid for 30 days
+  (`lib/session.ts`). The signing key comes from the credentials, so
+  changing either var signs everyone out.
 - To open the app again, remove both vars and redeploy.
 
 ## Deploying (Vercel)
@@ -228,17 +245,22 @@ tests would need a test database wired into CI.
 - `package.json` has an `allowScripts` list approving the install scripts
   of `@prisma/client`, `@prisma/engines`, `prisma`, `esbuild` and
   `unrs-resolver`. npm 11 only warns about unapproved scripts; npm 12
-  skips them. Check `npm install-scripts ls` (npm 12) after adding a
-  dependency that has an install script.
+  skips them. After adding a dependency that has an install script, check
+  `npm install-scripts ls` and approve it by name with
+  `npm install-scripts approve --no-allow-scripts-pin <pkg>` (npm 12), so
+  later version bumps stay covered.
 - Each research call logs one line to the server logs (Vercel → Logs):
   `[research] draft "Acme" model=… stop=… web_search_requests=… searches:
   "q" 8 results | "q2" error:too_many_requests`. A failed web search is a
   normal 200 with an error code in place of results, so this (and the
-  trace in the UI) is where failures show up.
-- A research call can run up to 5 web searches per company; the API
-  routes set `maxDuration = 60` to give it room.
+  trace in the UI) is where failures show up. The line is written before
+  the reply is checked or parsed, so refused and failed runs are logged
+  too, and it lists every search as run (repeats aren't collapsed).
+- A research call can run up to 5 web searches per company; the
+  `/api/draft` and `/api/signal` routes set `maxDuration = 60` to give it
+  room.
 
-### Troubleshooting
+## Troubleshooting
 
 - **"This page couldn't load" / a 500 on every page.** The home page
   reads the database on every load, so this usually means the database is
@@ -256,8 +278,10 @@ tests would need a test database wired into CI.
   refusal fallback (`fallbacks: "default"`): if Sonnet 5.5's safety
   classifiers decline a company, the API retries on Anthropic's
   recommended substitute model in the same call. Only some refusal
-  categories are retried, so a decline can still surface as an error.
-  Server-side fallback is Claude API only (not Bedrock/Vertex/Foundry).
+  categories are retried, so a decline can still come back; it shows as
+  "The model declined to research this company." rather than a JSON parse
+  error. Server-side fallback is Claude API only (not
+  Bedrock/Vertex/Foundry).
 - The `Prospect` table is intentionally a single flat table (see the
   comment in `prisma/schema.prisma`) — resist normalizing it for v1.
 - `signalSource` is whatever URL the model returns from its research; it's
@@ -274,15 +298,14 @@ tests would need a test database wired into CI.
 - **Model:** research moved to `claude-sonnet-5-5` with explicit effort
   and room for thinking, and a refusal now shows its own error
   ([#3](https://github.com/RedOctober7/prospect-agent/pull/3)). Added
-  the server-side refusal fallback
-  ([#4](https://github.com/RedOctober7/prospect-agent/pull/4)).
+  the server-side refusal fallback, bumping `@anthropic-ai/sdk` 0.104 →
+  0.131 ([#4](https://github.com/RedOctober7/prospect-agent/pull/4)).
 - **UI:** light/dark theme with WCAG AA contrast, new fonts, the research
   trace, hostname source links, the elapsed counter, a better mobile
-  layout, and README screenshots
-  ([#5](https://github.com/RedOctober7/prospect-agent/pull/5)). Long target
-  roles wrap in the signals table
-  ([#9](https://github.com/RedOctober7/prospect-agent/pull/9)), and so do
-  long source hostnames.
+  layout, README screenshots, and the `AGENTS.md`/`CLAUDE.md` files
+  `next dev` writes ([#5](https://github.com/RedOctober7/prospect-agent/pull/5)).
+  Long target roles wrap in the signals table
+  ([#9](https://github.com/RedOctober7/prospect-agent/pull/9)).
 - **Deploy fixes:** `prisma generate` runs in the build, which fixed the
   500 on Vercel ([#6](https://github.com/RedOctober7/prospect-agent/pull/6)).
   Install scripts are approved via `allowScripts` for npm 12
@@ -307,6 +330,9 @@ tests would need a test database wired into CI.
   - Openers no longer tell the reader what their own job has become
     ([#15](https://github.com/RedOctober7/prospect-agent/pull/15)).
 - **Docs:** README brought up to date
-  ([#2](https://github.com/RedOctober7/prospect-agent/pull/2)), and again
-  in this update: how the research works, sign-in, troubleshooting, new
-  screenshots.
+  ([#2](https://github.com/RedOctober7/prospect-agent/pull/2)).
+- **Docs + layout:** README rewritten to cover all of the above (how the
+  research works, sign-in, troubleshooting, new screenshots). In the
+  signals table, long source hostnames now wrap at a dot instead of
+  pushing the table past the page width, and the "· M failed" count
+  matches the collapsed search list.
