@@ -227,6 +227,13 @@ marketing. Hard rules:
   straight to the question. Bad: "When finance leadership changes, the
   forecast questions usually land on RevOps first." That sentence tells them
   what they already know; delete it.
+- Never tell the reader what their own job has become or hint that they
+  lost scope, in any wording, in the fact or in the question, even when the
+  source puts it that way. For a role change (a hire, promotion, departure,
+  reorg, or duties moving between people), say plainly who took or left
+  which job, then go straight to the question; asking about the work the
+  change touches is fine. Bad: "The new CFO started on May 4, so ops is now
+  your whole job."
 - Use absolute dates ("on October 14"), never relative ones ("next
   Wednesday", "last week", "yesterday"). The draft may be sent days after
   it's written, and a relative date goes wrong.
