@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { isHttpUrl, sourceLabel } from "@/lib/url";
 import { parseCompanyLines } from "@/lib/parseLines";
 import { groupRepeatedSearches, type SearchTrace } from "@/lib/searchTrace";
@@ -183,6 +183,9 @@ function ResearchTrace({
 }
 
 function SourceLink({ href }: { href: string }) {
+  // A <wbr> after each dot lets a long hostname wrap at a dot in a narrow
+  // column ("markets." / "financialcontent.com") instead of mid-word.
+  const parts = sourceLabel(href).split(".");
   return (
     <a
       href={href}
@@ -190,7 +193,13 @@ function SourceLink({ href }: { href: string }) {
       rel="noopener noreferrer"
       className="font-mono text-[11px] text-accent underline-offset-2 transition-all duration-200 hover:underline"
     >
-      ↗ {sourceLabel(href)}
+      ↗{"\u00a0"}
+      {parts.map((part, i) => (
+        <Fragment key={i}>
+          {part}
+          {i < parts.length - 1 && <>.<wbr /></>}
+        </Fragment>
+      ))}
     </a>
   );
 }
@@ -945,7 +954,7 @@ export default function DraftForm({
                           {result.scoreReason}
                         </p>
                       </td>
-                      <td className={`${tdClass} min-w-[16rem] max-w-sm text-muted`}>
+                      <td className={`${tdClass} min-w-[14rem] max-w-sm text-muted`}>
                         <p className="leading-relaxed">{result.signal}</p>
                         {result.searches && result.searches.length > 0 && (
                           <details className="group mt-2">
@@ -968,11 +977,11 @@ export default function DraftForm({
                       {/* Roles can come back long ("VP of Partnerships / Alliances (or ...)"),
                           so let them wrap instead of starving the Signal column. */}
                       <td className={`${tdClass} min-w-[8rem] max-w-[12rem] text-muted`}>{result.targetRole}</td>
-                      <td className={tdClass}>
+                      {/* Long hostnames ("markets.financialcontent.com") wrap at
+                          a dot instead of pushing the table past the page width. */}
+                      <td className={`${tdClass} min-w-[9rem]`}>
                         {result.signalSource && isHttpUrl(result.signalSource) ? (
-                          <span className="whitespace-nowrap">
-                            <SourceLink href={result.signalSource} />
-                          </span>
+                          <SourceLink href={result.signalSource} />
                         ) : (
                           <span className="text-subtle">—</span>
                         )}
