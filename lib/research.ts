@@ -24,15 +24,18 @@ const MODEL = "claude-sonnet-5-5";
 const EFFORT = "medium";
 
 // Raised from 3 when web_search_20260209 ran the same query twice back to
-// back, each copy counting against max_uses. Kept at 5 for the basic-variant
-// experiment below so only the tool version changes between runs.
+// back, each copy counting against max_uses. The basic variant below hasn't
+// repeated queries and settles in about 3 searches; 5 leaves headroom.
 const MAX_SEARCHES = 5;
 
-// Experiment (Oct 2026): the basic web search variant. web_search_20260209
-// filters results through its own code execution before the model sees them,
-// and on UiPath that filter sometimes hid recent news the same queries had
-// surfaced on other runs. The basic variant hands the model the results
-// directly. To switch back, set type to "web_search_20260209".
+// The basic web search variant, chosen over web_search_20260209 (Oct 2026).
+// 20260209 filters results through its own code execution before the model
+// sees them, and on UiPath that filter hid recent news its own searches had
+// returned (the model reported "no results" for searches with 9-10 hits). The
+// basic variant hands the model the results directly: in side-by-side Batch
+// runs it found the September news every time, ran no repeated queries, and
+// finished in under 20s instead of about 50s. To compare again, set type to
+// "web_search_20260209"; the trace then marks its searches "via code".
 const WEB_SEARCH_TOOL: Anthropic.Beta.BetaWebSearchTool20250305 | Anthropic.Beta.BetaWebSearchTool20260209 = {
   type: "web_search_20250305",
   name: "web_search",
