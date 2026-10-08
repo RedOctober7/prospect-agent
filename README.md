@@ -17,6 +17,10 @@ It's behind a sign-in because every run calls a paid API. For a demo
 login, message me through [my GitHub profile](https://github.com/RedOctober7)
 or [open an issue](https://github.com/RedOctober7/prospect-agent/issues).
 
+![Demo: a draft for one company, then three companies ranked in Signals mode](docs/demo.gif)
+
+<sub>A real run, sped up 2×: a Single draft, then Signals ranking three companies.</sub>
+
 ![Prospect Agent: a fresh draft with its research trace, dark theme](docs/screenshots/drafts-dark.png)
 
 ![Signals mode: companies ranked by signal score, with the searches behind the top one](docs/screenshots/signals-dark.png)
