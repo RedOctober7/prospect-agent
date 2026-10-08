@@ -375,6 +375,7 @@ tests would need a test database wired into CI.
   ([#16](https://github.com/RedOctober7/prospect-agent/pull/16)).
 - **Supabase keep-alive:** a Vercel Cron route reads the database three
   times a day so the free-tier project is less likely to be paused, gated
-  by `CRON_SECRET`.
+  by `CRON_SECRET` ([#17](https://github.com/RedOctober7/prospect-agent/pull/17)).
 - **Layout:** 16px between signals-table columns, so hostnames like
-  `globenewswire.com` fit on one line.
+  `globenewswire.com` fit on one line
+  ([#17](https://github.com/RedOctober7/prospect-agent/pull/17)).
