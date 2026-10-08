@@ -183,10 +183,10 @@ function ResearchTrace({
 }
 
 function SourceLink({ href }: { href: string }) {
-  // A <wbr> after each dot lets a long hostname wrap at its dots in a narrow
-  // column ("↗ markets." / "financialcontent.com"). A browser won't break
-  // between a dot and a letter on its own, so without it the hostname stays
-  // on one line and widens the column.
+  // A <wbr> after each dot lets a long hostname ("markets.financialcontent.com")
+  // wrap at its dots in a narrow column. A browser won't break between a dot
+  // and a letter on its own, so without it the hostname stays on one line
+  // and widens the column.
   const parts = sourceLabel(href).split(".");
   return (
     <a

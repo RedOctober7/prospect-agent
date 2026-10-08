@@ -157,9 +157,12 @@ prompt in `lib/research.ts`):
      ```bash
      node -e "console.log(require('crypto').randomBytes(24).toString('base64url'))"
      ```
-   - `CRON_SECRET` — only needed on Vercel, for the Supabase keep-alive
-     cron (see [Deploying](#deploying-vercel)). Generate it locally the
-     same way.
+   - `CRON_SECRET` — only needed on Vercel (Production), for the Supabase
+     keep-alive cron (see [Deploying](#deploying-vercel)). Generate it
+     locally too:
+     ```bash
+     node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+     ```
 
 3. **Run migrations**
    ```bash
@@ -225,9 +228,9 @@ tests would need a test database wired into CI.
   either one unset, the app is open and `/login` redirects home.
 - Enforced by `proxy.ts` (Next.js 16's replacement for `middleware.ts`).
   Signed-out page requests redirect to `/login`; API requests get a 401.
-  Opening `/login` while signed in redirects home. The one API path open
-  without a session is `/api/cron/keepalive`, which checks `CRON_SECRET`
-  itself.
+  Opening `/login` while signed in redirects home. Besides `/api/login`,
+  the only API path open without a session is `/api/cron/keepalive`,
+  which checks `CRON_SECRET` itself.
 - `/login` is a plain HTML form that posts to `/api/login`, so it works
   without JavaScript. Both fields are always compared (with
   `timingSafeEqual`, so timing doesn't show which one was wrong), and a
@@ -242,9 +245,10 @@ tests would need a test database wired into CI.
 
 - Mirror every var from `.env.local` into the Vercel project's environment
   variables — `DATABASE_URL`, `DIRECT_URL`, `ANTHROPIC_API_KEY`,
-  `APP_BASIC_AUTH_USER`, `APP_BASIC_AUTH_PASSWORD`, `CRON_SECRET`. Vercel
-  stores vars per environment, so tick both Production and Preview if you
-  use preview deploys. A changed var only takes effect after a redeploy.
+  `APP_BASIC_AUTH_USER`, `APP_BASIC_AUTH_PASSWORD`. Vercel stores vars per
+  environment, so tick both Production and Preview if you use preview
+  deploys. `CRON_SECRET` is the exception: Production only, since crons
+  never run on previews. A changed var only takes effect after a redeploy.
 - Merging to `master` deploys to production automatically.
 - **Supabase keep-alive.** Supabase pauses free-tier projects after about
   a week without database activity. `vercel.json` has Vercel Cron call
@@ -256,8 +260,10 @@ tests would need a test database wired into CI.
     it as `Authorization: Bearer <CRON_SECRET>`; without it every run gets
     a 401 and does nothing.
   - Crons only run on production deployments. Check them under the
-    project's Settings → Cron Jobs (each has a "View Log" button). Hobby
-    keeps runtime logs for about an hour.
+    project's Settings → Cron Jobs. To test right after deploying, click
+    Run next to an entry, then View Log (Hobby keeps runtime logs for
+    about an hour): `200 {"ok":true}` means it works, a 401 means
+    `CRON_SECRET` is missing or the deploy predates it.
   - On Hobby each cron entry may run at most once a day, and a more
     frequent schedule makes every deploy fail. That's why there are three
     entries for the same path instead of one `0 */8 * * *`.
@@ -368,6 +374,7 @@ tests would need a test database wired into CI.
   matches the collapsed search list
   ([#16](https://github.com/RedOctober7/prospect-agent/pull/16)).
 - **Supabase keep-alive:** a Vercel Cron route reads the database three
-  times a day so the free-tier project doesn't pause, gated by
-  `CRON_SECRET`. The signals table also gets 16px between columns, so
-  hostnames like `globenewswire.com` fit on one line.
+  times a day so the free-tier project is less likely to be paused, gated
+  by `CRON_SECRET`.
+- **Layout:** 16px between signals-table columns, so hostnames like
+  `globenewswire.com` fit on one line.
