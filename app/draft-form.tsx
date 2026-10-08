@@ -183,10 +183,10 @@ function ResearchTrace({
 }
 
 function SourceLink({ href }: { href: string }) {
-  // A <wbr> after each dot lets a long hostname wrap at its dots in a narrow
-  // column ("↗ markets." / "financialcontent." / "com"). A browser won't break
-  // between a dot and a letter on its own, so without it the hostname stays
-  // on one line and widens the column.
+  // A <wbr> after each dot lets a long hostname ("markets.financialcontent.com")
+  // wrap at its dots in a narrow column. A browser won't break between a dot
+  // and a letter on its own, so without it the hostname stays on one line
+  // and widens the column.
   const parts = sourceLabel(href).split(".");
   return (
     <a
@@ -226,8 +226,8 @@ const label = "font-mono text-[10px] font-medium uppercase tracking-[0.16em] tex
 const card = "relative overflow-hidden rounded-xl border border-line bg-surface p-5 sm:p-6 animate-fade-slide-in";
 const accentBar = "absolute inset-y-0 left-0 w-0.5";
 
-const thClass = "py-2.5 pr-6 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-subtle text-left";
-const tdClass = "py-3 pr-6 align-top text-sm";
+const thClass = "py-2.5 pr-4 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-subtle text-left";
+const tdClass = "py-3 pr-4 align-top text-sm";
 
 export default function DraftForm({
   initial,
