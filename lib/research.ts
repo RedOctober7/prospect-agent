@@ -146,16 +146,9 @@ export function extractJson<T>(text: string, schema: z.ZodType<T>): T {
   return result.data;
 }
 
-// Tuned to kill the usual AI-cold-email tells. The single most important
-// rule is the last one: never invent a fact.
-const SYSTEM = `You research a company and draft a single cold-outreach opener for a B2B sales rep.
-
-Process:
-1. Use web search to find ONE specific, recent, verifiable fact about the
-   company: a funding round, a new product or feature, a hire or exec change,
-   an expansion, a press mention, or a public job posting that signals a
-   priority. Prefer the last 3-6 months.
-   Today's date is given in the user message. Judge "recent" against that
+// How to search and which fact to pick. Shared by both prompts so the draft
+// and signal modes can't drift apart; it sits inside step 1 of each.
+const SEARCH_RULES = `   Today's date is given in the user message. Judge "recent" against that
    date, never against your own sense of what year it is, and search for the
    latest news (put the current year in your queries), not a year you assume.
    You get at most ${MAX_SEARCHES} searches, so never run the same query twice. Make each
@@ -165,7 +158,18 @@ Process:
    strongest buying trigger (funding, an exec change, an expansion) over a
    weaker one (an event, a minor partnership). Only fall back to an older
    fact when nothing from the last 6 months turned up; a strong trigger
-   from 8 months ago loses to a decent one from last month.
+   from 8 months ago loses to a decent one from last month.`;
+
+// Tuned to kill the usual AI-cold-email tells. The single most important
+// rule is the last one: never invent a fact.
+const SYSTEM = `You research a company and draft a single cold-outreach opener for a B2B sales rep.
+
+Process:
+1. Use web search to find ONE specific, recent, verifiable fact about the
+   company: a funding round, a new product or feature, a hire or exec change,
+   an expansion, a press mention, or a public job posting that signals a
+   priority. Prefer the last 3-6 months.
+${SEARCH_RULES}
 2. Pick the ONE role most likely to care about a sales rep's outreach
    (e.g. VP Sales, Head of RevOps, founder). A single title: no slashes, no
    "or", no alternatives in parentheses.
@@ -262,16 +266,22 @@ export const ProspectDraftSchema = z.object({
 export type ProspectDraft = z.infer<typeof ProspectDraftSchema>;
 export type Researched<T> = T & { searches: SearchTrace[] };
 
-export async function researchAndDraft(
+// One research call: the model searches the web and answers with JSON that
+// must match `schema`. Both modes go through here; only the prompt and the
+// expected shape differ.
+async function runResearch<T>(
+  kind: "draft" | "signal",
+  system: string,
+  schema: z.ZodType<T>,
   company: string,
   website: string
-): Promise<Researched<ProspectDraft>> {
+): Promise<Researched<T>> {
   const msg = await getClient().beta.messages.create({
     ...FALLBACK,
     model: MODEL,
     max_tokens: 16000,
     output_config: { effort: EFFORT },
-    system: SYSTEM,
+    system,
     messages: [
       {
         role: "user",
@@ -283,10 +293,17 @@ export async function researchAndDraft(
 
   // Log before anything can throw, so failed runs leave a trace too.
   const searches = extractSearches(msg.content);
-  logResearch("draft", company, msg, searches);
+  logResearch(kind, company, msg, searches);
   assertNotRefused(msg);
-  const draft = extractJson(extractText(msg.content), ProspectDraftSchema);
-  return { ...draft, searches };
+  const parsed = extractJson(extractText(msg.content), schema);
+  return { ...parsed, searches };
+}
+
+export async function researchAndDraft(
+  company: string,
+  website: string
+): Promise<Researched<ProspectDraft>> {
+  return runResearch("draft", SYSTEM, ProspectDraftSchema, company, website);
 }
 
 const SIGNAL_SYSTEM = `You research a company and score the quality of their best recent signal for cold outreach.
@@ -296,17 +313,7 @@ Process:
    exec hire or departure, layoffs or restructuring, major expansion, new product
    line, notable partnership, or job postings that signal a priority shift.
    Prefer the last 3-6 months.
-   Today's date is given in the user message. Judge "recent" against that
-   date, never against your own sense of what year it is, and search for the
-   latest news (put the current year in your queries), not a year you assume.
-   You get at most ${MAX_SEARCHES} searches, so never run the same query twice. Make each
-   one look for a different kind of news (funding, leadership changes,
-   launches or partnerships) before settling on a fact. If you find several,
-   recency comes first: among the facts from the last 6 months, pick the
-   strongest buying trigger (funding, an exec change, an expansion) over a
-   weaker one (an event, a minor partnership). Only fall back to an older
-   fact when nothing from the last 6 months turned up; a strong trigger
-   from 8 months ago loses to a decent one from last month.
+${SEARCH_RULES}
 2. Pick the ONE role most likely to care about a sales rep's outreach. A
    single title: no slashes, no "or", no alternatives in parentheses.
 3. Score the signal on three dimensions. Be stingy — use the full 1-5 range on each.
@@ -361,14 +368,18 @@ Return ONLY a JSON object, no other text:
   "scoreReason": "one sentence explaining why this total is right"
 }`;
 
+// Each score must be a whole number from 1 to 5, as the prompt asks; a reply
+// outside that fails loudly instead of skewing the ranking.
+const Score = z.number().int().min(1).max(5);
+
 export const SignalDraftSchema = z.object({
   companyName: z.string(),
   signal: z.string(),
   signalSource: z.string(),
   targetRole: z.string(),
-  recency: z.number(),
-  triggerStrength: z.number(),
-  specificity: z.number(),
+  recency: Score,
+  triggerStrength: Score,
+  specificity: Score,
   total: z.number(),
   scoreReason: z.string(),
 });
@@ -379,25 +390,8 @@ export async function researchSignal(
   company: string,
   website: string
 ): Promise<Researched<SignalDraft>> {
-  const msg = await getClient().beta.messages.create({
-    ...FALLBACK,
-    model: MODEL,
-    max_tokens: 16000,
-    output_config: { effort: EFFORT },
-    system: SIGNAL_SYSTEM,
-    messages: [
-      {
-        role: "user",
-        content: userMessage(company, website),
-      },
-    ],
-    tools: [WEB_SEARCH_TOOL],
-  });
-
-  // Log before anything can throw, so failed runs leave a trace too.
-  const searches = extractSearches(msg.content);
-  logResearch("signal", company, msg, searches);
-  assertNotRefused(msg);
-  const signal = extractJson(extractText(msg.content), SignalDraftSchema);
-  return { ...signal, searches };
+  const signal = await runResearch("signal", SIGNAL_SYSTEM, SignalDraftSchema, company, website);
+  // The table ranks by total, so compute it here rather than trust the
+  // model's arithmetic.
+  return { ...signal, total: signal.recency + signal.triggerStrength + signal.specificity };
 }

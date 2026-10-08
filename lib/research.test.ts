@@ -256,4 +256,41 @@ describe("researchSignal (mocked Anthropic client)", () => {
     expect(signal.total).toBe(14);
     expect(signal.recency).toBe(5);
   });
+
+  const signalReply = (scores: Record<string, unknown>) => ({
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          companyName: "Acme",
+          signal: "raised a $10M seed round",
+          signalSource: "https://techcrunch.com/acme-seed",
+          targetRole: "VP Sales",
+          scoreReason: "Fresh and specific.",
+          ...scores,
+        }),
+      },
+    ],
+  });
+
+  it("computes the total from the three scores instead of trusting the model", async () => {
+    mockCreate.mockResolvedValue(
+      signalReply({ recency: 5, triggerStrength: 5, specificity: 4, total: 15 })
+    );
+
+    const signal = await researchSignal("Acme", "acme.com");
+    expect(signal.total).toBe(14);
+  });
+
+  it("rejects a score that isn't a whole number from 1 to 5", async () => {
+    mockCreate.mockResolvedValue(
+      signalReply({ recency: 6, triggerStrength: 5, specificity: 4, total: 15 })
+    );
+    await expect(researchSignal("Acme", "acme.com")).rejects.toThrow(/didn't match the expected shape/);
+
+    mockCreate.mockResolvedValue(
+      signalReply({ recency: 5, triggerStrength: 4.5, specificity: 4, total: 13.5 })
+    );
+    await expect(researchSignal("Acme", "acme.com")).rejects.toThrow(/didn't match the expected shape/);
+  });
 });
