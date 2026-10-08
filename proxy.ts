@@ -4,7 +4,9 @@ import { SESSION_COOKIE, getAuthConfig, verifySessionToken } from "@/lib/session
 // Next.js 16 renamed middleware.ts -> proxy.ts (exported fn: proxy, not
 // middleware). Runs on the Node.js runtime, so `crypto` is available.
 
-const PUBLIC_PATHS = new Set(["/login", "/api/login"]);
+// Exact matches. The keep-alive is called by Vercel Cron, which has no
+// session; the route checks CRON_SECRET itself (see lib/cron.ts).
+const PUBLIC_PATHS = new Set(["/login", "/api/login", "/api/cron/keepalive"]);
 
 // Gates the whole app (UI + API routes) behind the login page when
 // APP_BASIC_AUTH_USER / APP_BASIC_AUTH_PASSWORD are set; see lib/session.ts.
