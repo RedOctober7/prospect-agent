@@ -9,7 +9,8 @@
   total is computed from them instead of taken from the model. Error
   messages shown in the app no longer include the model's raw reply (it
   goes to the server log). README reorganized for a first-time reader;
-  this changelog moved out of it.
+  this changelog moved out of it
+  ([#18](https://github.com/RedOctober7/prospect-agent/pull/18)).
 - **Supabase keep-alive:** a Vercel Cron route reads the database three
   times a day so the free-tier project is less likely to be paused, gated
   by `CRON_SECRET` ([#17](https://github.com/RedOctober7/prospect-agent/pull/17)).
