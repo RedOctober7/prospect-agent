@@ -9,62 +9,57 @@ scores a list of companies (recency / trigger strength / specificity)
 without drafting, to decide who to reach out to first.
 
 Built for founders and SDRs doing outbound: it replaces the few minutes of
-googling before each cold email, and shows exactly which searches the
-opener is based on.
+googling before each cold email, and shows the web searches behind each
+fresh draft.
 
 **Live:** [prospect-agent-kappa.vercel.app](https://prospect-agent-kappa.vercel.app).
-It's behind a sign-in because every run calls a paid API; access for
-reviewers on request.
+It's behind a sign-in because every run calls a paid API. For a demo
+login, message me through [my GitHub profile](https://github.com/RedOctober7)
+or [open an issue](https://github.com/RedOctober7/prospect-agent/issues).
 
 ![Prospect Agent: a fresh draft with its research trace, dark theme](docs/screenshots/drafts-dark.png)
 
-<p>
-  <img src="docs/screenshots/drafts-light.png" alt="Light theme" width="49%" />
-  <img src="docs/screenshots/signals-dark.png" alt="Signals mode: companies ranked by signal score" width="49%" />
-</p>
+![Signals mode: companies ranked by signal score, with the searches behind the top one](docs/screenshots/signals-dark.png)
 
 <sub>Screenshots use fictional example companies and sources.</sub>
 
 ## Highlights
 
-- **Decisions from measurements.** Two versions of Claude's web search
-  tool were compared side by side on real companies. The basic one found
-  the recent news every run and was about 2.5× faster (under 20s instead
-  of about 50s), so it replaced the newer one. Details in
+- **Measured, then switched.** Over three runs on the same two real
+  companies, the basic version of Claude's web search tool found the
+  recent news every time (the newer version missed it on one company) and
+  was about 2.5× faster: under 20s instead of about 50s. Details in
   [How the research works](#how-the-research-works).
-- **Model output is treated as untrusted.** Every reply is parsed and
-  validated with Zod, signal scores must be whole numbers from 1 to 5 and
-  the total is computed from them, source URLs only become links when
-  they're `http(s)`, and a declined request falls back to another model.
-- **Prompt rules tuned on real runs**, one small reviewed PR at a time:
-  recency judged against today's date, absolute dates in openers, one
-  target role, no presumptuous claims about the reader's job. See the
-  [changelog](CHANGELOG.md).
+- **Model output is treated as untrusted.** Every reply is validated with
+  Zod: scores must be whole numbers from 1 to 5, the total is computed on
+  the server, and a source URL becomes a link only if it's `http(s)`.
+- **Prompt rules tuned on real runs:** recency judged against today's
+  date, absolute dates in openers, one target role, never telling the
+  reader what their own job has become. The [changelog](CHANGELOG.md)
+  links the PR behind each one.
 - **Built to run unattended.** A cookie sign-in enforced in Next.js 16's
   `proxy.ts` (HMAC-signed sessions, constant-time checks) protects the API
-  budget, a secret-gated Vercel Cron keeps the free-tier database from
-  pausing, and each research call logs one line that shows failed
-  searches.
+  budget. A secret-gated Vercel Cron reads the free-tier database three
+  times a day so it's less likely to be paused. Each research call logs
+  one line that shows failed searches, and a refusal the API can retry
+  falls back to another model.
 - **Tested in CI.** GitHub Actions runs lint, typecheck, the unit tests
   and a production build on every pull request.
 
-Built solo (June–October 2026) with Claude Code as a pair programmer. I
-owned the product decisions, ran the comparisons on real companies and
-approved every change.
+Built solo with Claude Code. I made the product decisions, ran the
+search-tool comparison on real companies, and reviewed and merged every
+pull request.
 
 ## Features
 
 - **Draft:** one company or a batch (one per line), each row with its own
   loading/retry state and a live elapsed-seconds counter.
-- **Signals:** rank a list of companies by signal strength, no opener.
-  Results stay on the page until a reload or the next run (not saved), so
-  export them as CSV to keep them.
+- **Signals:** rank a list of companies by signal strength, no opener;
+  export the ranking as CSV. (Rankings aren't saved.)
 - **Research trace:** each fresh draft or signal lists the web searches
-  the agent actually ran and how each came back (result count, or the
-  error code in red); a query repeated back to back shows once with "×2".
-  In the signals table it folds into an expandable "N web searches" line,
-  with "· M failed" when any failed. The trace isn't stored, so after a
-  reload a prospect shows only its signal and source link.
+  the agent ran and how each came back (result count, or the error code
+  in red). It isn't stored, so after a reload a prospect shows only its
+  signal and source link.
 - **Saved prospects:** every draft is stored in Postgres and loads 25 at
   a time (cursor-paginated). Edit company, website, target role, signal,
   source or opener; move it from `new` to `contacted` to `replied` with
@@ -75,8 +70,8 @@ approved every change.
   `http(s)` URLs (see [Notes](#notes)).
 - **Sign-in** gates the whole app once credentials are set (see
   [Sign-in](#sign-in)).
-- **Light / dark theme**, dark by default, applied before first paint so
-  there's no flash.
+- **Light / dark theme** ([light screenshot](docs/screenshots/drafts-light.png)),
+  dark by default, applied before first paint so there's no flash.
 
 ## How the research works
 
@@ -92,13 +87,16 @@ share the same call and the same search rules):
   and under 20 seconds.
 - **Today's date** goes at the top of every request, so "recent" is judged
   against the real date, not the model's idea of what year it is.
-- **Refusal fallback:** if Sonnet 5.5 declines a company, the API retries it
-  on Anthropic's recommended substitute model inside the same call (see
-  [Notes](#notes)).
+- **Refusal fallback:** if Sonnet 5.5 declines a company for a reason the
+  API retries, it re-runs it on Anthropic's recommended substitute model
+  inside the same call (see [Notes](#notes)).
+- **Scores (signals mode):** each of the three must be a whole number from
+  1 to 5; the total is their sum, computed on the server rather than taken
+  from the model.
 
 Why the basic search tool: the newer `web_search_20260209` filters results
-through its own code execution before the model sees them. In side-by-side
-runs (October 2026) it ran the same query twice in a row, and on one
+through its own code execution before the model sees them. In runs on the
+same companies (October 2026) it ran the same query twice in a row, and on one
 company it hid recent news that its own searches had returned (the model
 said "only one search returned usable results" for searches with 9–10 hits
 each). The basic tool hands the model the results directly: it found the
@@ -215,9 +213,11 @@ silent bugs:
 
 - `lib/research.test.ts` — the model's JSON extraction + Zod validation,
   the dated user message, reading each web search's query, result count,
-  error code and "via code" flag, the refusal fallback, and the signal
-  scores (1–5 whole numbers, total computed from them). Mocked against
-  the Anthropic SDK, so no API key or network call is needed.
+  error code and "via code" flag, the refusal fallback, the signal scores
+  (1–5 whole numbers, total computed from them), which prompt each mode
+  sends, and that errors shown in the app leave out the model's raw reply.
+  Mocked against the Anthropic SDK, so no API key or network call is
+  needed.
 - `lib/searchTrace.test.ts` — collapsing back-to-back repeated searches.
 - `lib/prospects.test.ts` — cursor pagination and the PATCH body schema
   (`ProspectPatchSchema`).
@@ -361,5 +361,5 @@ tests would need a test database wired into CI.
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md): every change since June 2026, with links
-to the pull requests.
+See [CHANGELOG.md](CHANGELOG.md): the notable changes since June 2026,
+with links to the pull requests.

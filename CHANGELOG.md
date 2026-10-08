@@ -3,11 +3,13 @@
 ## October 2026
 
 - **Code quality:** the draft and signal calls share one research
-  function and one block of search rules, so the two prompts can't drift
-  apart (the prompt text the model gets is unchanged). Signal scores must
-  be whole numbers from 1 to 5, and the total is computed from them
-  instead of taken from the model. README reorganized for a first-time
-  reader; this changelog moved out of it.
+  function and one block of search rules, so the search rules can't drift
+  apart between the two prompts (the prompt text the model gets is
+  unchanged). Signal scores must be whole numbers from 1 to 5, and the
+  total is computed from them instead of taken from the model. Error
+  messages shown in the app no longer include the model's raw reply (it
+  goes to the server log). README reorganized for a first-time reader;
+  this changelog moved out of it.
 - **Supabase keep-alive:** a Vercel Cron route reads the database three
   times a day so the free-tier project is less likely to be paused, gated
   by `CRON_SECRET` ([#17](https://github.com/RedOctober7/prospect-agent/pull/17)).
@@ -60,9 +62,13 @@
 
 - **Security, pagination, edit/delete, CI and tests**
   ([#1](https://github.com/RedOctober7/prospect-agent/pull/1)): the app
-  behind a sign-in, the model's JSON validated with Zod, cursor-paginated
-  saved prospects with status tracking, edit and delete, batch dedup and
-  retry, and GitHub Actions CI with the first unit tests.
+  behind HTTP Basic Auth, the model's JSON validated with Zod, source
+  links rendered only for `http(s)` URLs, web search moved to
+  `web_search_20260209` (replaced by the basic tool in October),
+  cursor-paginated saved prospects with status tracking, edit and delete,
+  batch dedup and retry, ESLint, and GitHub Actions CI with the first unit
+  tests.
+- CI's push trigger fixed to run on `master` (it pointed at `main`).
 - Fixed a duplicate row when Retry was double-clicked in batch/signals.
 
 ## June 2026

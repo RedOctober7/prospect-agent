@@ -146,8 +146,15 @@ export function extractJson<T>(text: string, schema: z.ZodType<T>): T {
   return result.data;
 }
 
-// How to search and which fact to pick. Shared by both prompts so the draft
-// and signal modes can't drift apart; it sits inside step 1 of each.
+// What a failed research call tells the browser: the error without the
+// model's raw reply that extractJson appends for the server logs.
+export function publicErrorMessage(err: unknown, fallback: string): string {
+  if (!(err instanceof Error)) return fallback;
+  return err.message.split("\nRaw text was:")[0];
+}
+
+// How to search and which fact to pick. Shared by both prompts so these
+// rules can't drift apart between modes; it sits inside step 1 of each.
 const SEARCH_RULES = `   Today's date is given in the user message. Judge "recent" against that
    date, never against your own sense of what year it is, and search for the
    latest news (put the current year in your queries), not a year you assume.
@@ -372,6 +379,9 @@ Return ONLY a JSON object, no other text:
 // outside that fails loudly instead of skewing the ranking.
 const Score = z.number().int().min(1).max(5);
 
+// No `total` here: the prompt still asks for one, but it's computed from the
+// three scores below, so a missing or odd total from the model can't fail
+// the run (z.object drops the extra key).
 export const SignalDraftSchema = z.object({
   companyName: z.string(),
   signal: z.string(),
@@ -380,11 +390,10 @@ export const SignalDraftSchema = z.object({
   recency: Score,
   triggerStrength: Score,
   specificity: Score,
-  total: z.number(),
   scoreReason: z.string(),
 });
 
-export type SignalDraft = z.infer<typeof SignalDraftSchema>;
+export type SignalDraft = z.infer<typeof SignalDraftSchema> & { total: number };
 
 export async function researchSignal(
   company: string,
