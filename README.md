@@ -335,4 +335,5 @@ tests would need a test database wired into CI.
   research works, sign-in, troubleshooting, new screenshots). In the
   signals table, long source hostnames now wrap at a dot instead of
   pushing the table past the page width, and the "· M failed" count
-  matches the collapsed search list.
+  matches the collapsed search list
+  ([#16](https://github.com/RedOctober7/prospect-agent/pull/16)).
