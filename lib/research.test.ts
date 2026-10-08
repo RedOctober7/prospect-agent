@@ -10,7 +10,15 @@ vi.mock("@anthropic-ai/sdk", () => ({
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { z } from "zod";
-import { extractJson, extractSearches, extractText, researchAndDraft, researchSignal, userMessage } from "./research";
+import {
+  extractJson,
+  extractSearches,
+  extractText,
+  publicErrorMessage,
+  researchAndDraft,
+  researchSignal,
+  userMessage,
+} from "./research";
 
 beforeEach(() => {
   mockCreate.mockReset();
@@ -191,6 +199,9 @@ describe("researchAndDraft (mocked Anthropic client)", () => {
     expect(draft.companyName).toBe("Acme");
     const sent = mockCreate.mock.calls[0][0];
     expect(sent.messages[0].content).toMatch(/^Today's date: \d{4}-\d{2}-\d{2}\n/);
+    expect(sent.system).toMatch(/^You research a company and draft/);
+    expect(sent.system).toMatch(/at most 5 searches/);
+    expect(sent.tools[0].type).toBe("web_search_20250305");
     expect(mockCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         model: "claude-sonnet-5-5",
@@ -255,5 +266,69 @@ describe("researchSignal (mocked Anthropic client)", () => {
     const signal = await researchSignal("Acme", "acme.com");
     expect(signal.total).toBe(14);
     expect(signal.recency).toBe(5);
+    const sent = mockCreate.mock.calls[0][0];
+    expect(sent.system).toMatch(/^You research a company and score/);
+    expect(sent.system).toMatch(/at most 5 searches/);
+  });
+
+  const signalReply = (scores: Record<string, unknown>) => ({
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          companyName: "Acme",
+          signal: "raised a $10M seed round",
+          signalSource: "https://techcrunch.com/acme-seed",
+          targetRole: "VP Sales",
+          scoreReason: "Fresh and specific.",
+          ...scores,
+        }),
+      },
+    ],
+  });
+
+  it("computes the total from the three scores instead of trusting the model", async () => {
+    mockCreate.mockResolvedValue(
+      signalReply({ recency: 5, triggerStrength: 5, specificity: 4, total: 15 })
+    );
+    expect((await researchSignal("Acme", "acme.com")).total).toBe(14);
+
+    // A missing or malformed total doesn't fail the run either.
+    mockCreate.mockResolvedValue(signalReply({ recency: 3, triggerStrength: 4, specificity: 2 }));
+    expect((await researchSignal("Acme", "acme.com")).total).toBe(9);
+    mockCreate.mockResolvedValue(
+      signalReply({ recency: 3, triggerStrength: 4, specificity: 2, total: "nine" })
+    );
+    expect((await researchSignal("Acme", "acme.com")).total).toBe(9);
+  });
+
+  it("rejects a score that isn't a whole number from 1 to 5", async () => {
+    mockCreate.mockResolvedValue(
+      signalReply({ recency: 6, triggerStrength: 5, specificity: 4, total: 15 })
+    );
+    await expect(researchSignal("Acme", "acme.com")).rejects.toThrow(/didn't match the expected shape/);
+
+    mockCreate.mockResolvedValue(
+      signalReply({ recency: 5, triggerStrength: 4.5, specificity: 4, total: 13.5 })
+    );
+    await expect(researchSignal("Acme", "acme.com")).rejects.toThrow(/didn't match the expected shape/);
+  });
+});
+
+describe("publicErrorMessage", () => {
+  it("drops the model's raw reply that extractJson appends for the logs", () => {
+    let err: unknown;
+    try {
+      extractJson('{"companyName":"Acme"}', Schema);
+    } catch (e) {
+      err = e;
+    }
+    const message = publicErrorMessage(err, "Research failed.");
+    expect(message).toMatch(/didn't match the expected shape/);
+    expect(message).not.toMatch(/Raw text was/);
+  });
+
+  it("falls back for anything that isn't an Error", () => {
+    expect(publicErrorMessage("boom", "Research failed.")).toBe("Research failed.");
   });
 });

@@ -1,56 +1,82 @@
 # Prospect Agent
 
+[![CI](https://github.com/RedOctober7/prospect-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/RedOctober7/prospect-agent/actions/workflows/ci.yml)
+
 Researches a company with Claude's web search, finds one specific recent
 signal (funding, a hire, a product launch, ...), and drafts a 2–3 sentence
-cold outreach opener built on that single fact. Also has a "signals" mode
-that scores a list of companies (recency / trigger strength / specificity)
-without drafting an opener, for prioritizing who to reach out to first.
+cold outreach opener built on that single fact. A second "signals" mode
+scores a list of companies (recency / trigger strength / specificity)
+without drafting, to decide who to reach out to first.
+
+Built for founders and SDRs doing outbound: it replaces the few minutes of
+googling before each cold email, and shows the web searches behind each
+fresh draft.
+
+**Live:** [prospect-agent-kappa.vercel.app](https://prospect-agent-kappa.vercel.app).
+It's behind a sign-in because every run calls a paid API. For a demo
+login, message me through [my GitHub profile](https://github.com/RedOctober7)
+or [open an issue](https://github.com/RedOctober7/prospect-agent/issues).
 
 ![Prospect Agent: a fresh draft with its research trace, dark theme](docs/screenshots/drafts-dark.png)
 
-<p>
-  <img src="docs/screenshots/drafts-light.png" alt="Light theme" width="49%" />
-  <img src="docs/screenshots/signals-dark.png" alt="Signals mode: companies ranked by signal score" width="49%" />
-</p>
+![Signals mode: companies ranked by signal score, with the searches behind the top one](docs/screenshots/signals-dark.png)
 
 <sub>Screenshots use fictional example companies and sources.</sub>
 
-Features:
+## Highlights
 
-- **Draft** — single company or a batch (one per line), each row with its
-  own loading/retry state and a live elapsed-seconds counter while the
-  research runs.
-- **Signals** — rank a list of companies by signal strength, no opener.
-  Results aren't saved: they stay on the page until a reload or the next
-  run, so export them as CSV to keep them.
-- **Research trace** — each fresh draft or signal shows the web searches
-  the agent actually ran and how each came back: the result count, or the
-  error code in red. A query run twice in a row shows once with "×2". In
-  the signals table the trace is folded into an expandable "N web
-  searches" line, with "· M failed" in red when any search failed. The
-  trace isn't stored, so after a reload a prospect shows its signal and
-  source link without it.
-- **Source links** — shown as the hostname (`techcrunch.com`), which wraps
-  at its dots in a narrow column. See [Notes](#notes) for when a source
-  gets a link.
-- **CSV export** — in Single/Batch, every prospect loaded in the list so
-  far; in Signals, the ranked results. Saved as `prospects-<YYYY-MM-DD>.csv`
-  (UTC date).
-- **Saved prospects** — every draft is stored in Postgres. The list loads
-  25 at a time ("load more", cursor-paginated). Each prospect can be
-  edited (company, website, target role, signal, source, opener), moved
-  from `new` to `contacted` to `replied` with its "Mark …" button, or
-  deleted.
-- **Sign-in** — a sign-in page gates the whole app (UI + API) once
-  credentials are set, with a "sign out" button in the header. See
-  [Sign-in](#sign-in).
-- **Light / dark theme** — dark by default. The toggle (in the header and
-  on the sign-in page) saves your choice in `localStorage`, and an inline
-  script applies it before first paint, so there's no flash.
+- **Measured, then switched.** Over three runs on the same two real
+  companies, the basic version of Claude's web search tool found the
+  recent news every time (the newer version missed it on one company) and
+  was about 2.5× faster: under 20s instead of about 50s. Details in
+  [How the research works](#how-the-research-works).
+- **Model output is treated as untrusted.** Every reply is validated with
+  Zod: scores must be whole numbers from 1 to 5, the total is computed on
+  the server, and a source URL becomes a link only if it's `http(s)`.
+- **Prompt rules tuned on real runs:** recency judged against today's
+  date, absolute dates in openers, one target role, never telling the
+  reader what their own job has become. The [changelog](CHANGELOG.md)
+  links the PR behind each one.
+- **Built to run unattended.** A cookie sign-in enforced in Next.js 16's
+  `proxy.ts` (HMAC-signed sessions, constant-time checks) protects the API
+  budget. A secret-gated Vercel Cron reads the free-tier database three
+  times a day so it's less likely to be paused. Each research call logs
+  one line that shows failed searches, and a refusal the API can retry
+  falls back to another model.
+- **Tested in CI.** GitHub Actions runs lint, typecheck, the unit tests
+  and a production build on every pull request.
+
+Built solo with Claude Code. I made the product decisions, ran the
+search-tool comparison on real companies, and reviewed and merged every
+pull request.
+
+## Features
+
+- **Draft:** one company or a batch (one per line), each row with its own
+  loading/retry state and a live elapsed-seconds counter.
+- **Signals:** rank a list of companies by signal strength, no opener;
+  export the ranking as CSV. (Rankings aren't saved.)
+- **Research trace:** each fresh draft or signal lists the web searches
+  the agent ran and how each came back (result count, or the error code
+  in red). It isn't stored, so after a reload a prospect shows only its
+  signal and source link.
+- **Saved prospects:** every draft is stored in Postgres and loads 25 at
+  a time (cursor-paginated). Edit company, website, target role, signal,
+  source or opener; move it from `new` to `contacted` to `replied` with
+  its "Mark …" button; or delete it.
+- **CSV export:** in Single/Batch, every prospect loaded so far; in
+  Signals, the ranked results.
+- **Source links** show the hostname (`techcrunch.com`) and only link
+  `http(s)` URLs (see [Notes](#notes)).
+- **Sign-in** gates the whole app once credentials are set (see
+  [Sign-in](#sign-in)).
+- **Light / dark theme** ([light screenshot](docs/screenshots/drafts-light.png)),
+  dark by default, applied before first paint so there's no flash.
 
 ## How the research works
 
-Each company is one call to the Claude API (`lib/research.ts`):
+Each company is one call to the Claude API (`lib/research.ts`; both modes
+share the same call and the same search rules):
 
 - **Model:** `claude-sonnet-5-5` with `effort: "medium"` and
   `max_tokens: 16000`. Sonnet 5.5 thinks by default and thinking counts
@@ -61,13 +87,16 @@ Each company is one call to the Claude API (`lib/research.ts`):
   and under 20 seconds.
 - **Today's date** goes at the top of every request, so "recent" is judged
   against the real date, not the model's idea of what year it is.
-- **Refusal fallback:** if Sonnet 5.5 declines a company, the API retries it
-  on Anthropic's recommended substitute model inside the same call (see
-  [Notes](#notes)).
+- **Refusal fallback:** if Sonnet 5.5 declines a company for a reason the
+  API retries, it re-runs it on Anthropic's recommended substitute model
+  inside the same call (see [Notes](#notes)).
+- **Scores (signals mode):** each of the three must be a whole number from
+  1 to 5; the total is their sum, computed on the server rather than taken
+  from the model.
 
 Why the basic search tool: the newer `web_search_20260209` filters results
-through its own code execution before the model sees them. In side-by-side
-runs (October 2026) it ran the same query twice in a row, and on one
+through its own code execution before the model sees them. In runs on the
+same companies (October 2026) it ran the same query twice in a row, and on one
 company it hid recent news that its own searches had returned (the model
 said "only one search returned usable results" for searches with 9–10 hits
 each). The basic tool hands the model the results directly: it found the
@@ -104,19 +133,6 @@ prompt in `lib/research.ts`):
   then asks the question.
 - Never invents a fact: if nothing specific turns up, the signal says so
   and the opener stays plain.
-
-## API routes
-
-| Route | Method | What it does |
-|---|---|---|
-| `/api/draft` | POST | Research a company and draft an opener, then save it. The response also carries `searches`: each web query run, with its result count or error code |
-| `/api/signal` | POST | Research and score a company's signal, no opener, not saved; includes `searches` (same shape) |
-| `/api/prospects` | GET | List saved prospects (`?cursor=` for the next page) |
-| `/api/prospects/[id]` | PATCH | Update any subset of a prospect's fields |
-| `/api/prospects/[id]` | DELETE | Delete a prospect |
-| `/api/login` | POST | Sign in (form post from `/login`); sets the session cookie |
-| `/api/logout` | POST | Sign out; clears the session cookie |
-| `/api/cron/keepalive` | GET | Supabase keep-alive for Vercel Cron: one small read, needs `Authorization: Bearer <CRON_SECRET>` |
 
 ## Stack
 
@@ -197,8 +213,11 @@ silent bugs:
 
 - `lib/research.test.ts` — the model's JSON extraction + Zod validation,
   the dated user message, reading each web search's query, result count,
-  error code and "via code" flag, and the refusal fallback. Mocked against
-  the Anthropic SDK, so no API key or network call is needed.
+  error code and "via code" flag, the refusal fallback, the signal scores
+  (1–5 whole numbers, total computed from them), which prompt each mode
+  sends, and that errors shown in the app leave out the model's raw reply.
+  Mocked against the Anthropic SDK, so no API key or network call is
+  needed.
 - `lib/searchTrace.test.ts` — collapsing back-to-back repeated searches.
 - `lib/prospects.test.ts` — cursor pagination and the PATCH body schema
   (`ProspectPatchSchema`).
@@ -217,6 +236,19 @@ Out of scope for now: the API route handlers themselves (`app/api/**`)
 aren't covered by automated tests — they were verified manually against a
 real Postgres instance during development. Adding real route/integration
 tests would need a test database wired into CI.
+
+## API routes
+
+| Route | Method | What it does |
+|---|---|---|
+| `/api/draft` | POST | Research a company and draft an opener, then save it. The response also carries `searches`: each web query run, with its result count or error code |
+| `/api/signal` | POST | Research and score a company's signal, no opener, not saved; includes `searches` (same shape) |
+| `/api/prospects` | GET | List saved prospects (`?cursor=` for the next page) |
+| `/api/prospects/[id]` | PATCH | Update any subset of a prospect's fields |
+| `/api/prospects/[id]` | DELETE | Delete a prospect |
+| `/api/login` | POST | Sign in (form post from `/login`); sets the session cookie |
+| `/api/logout` | POST | Sign out; clears the session cookie |
+| `/api/cron/keepalive` | GET | Supabase keep-alive for Vercel Cron: one small read, needs `Authorization: Bearer <CRON_SECRET>` |
 
 ## Sign-in
 
@@ -329,53 +361,5 @@ tests would need a test database wired into CI.
 
 ## Changelog
 
-### October 2026
-
-- **Model:** research moved to `claude-sonnet-5-5` with explicit effort
-  and room for thinking, and a refusal now shows its own error
-  ([#3](https://github.com/RedOctober7/prospect-agent/pull/3)). Added
-  the server-side refusal fallback, bumping `@anthropic-ai/sdk` 0.104 →
-  0.131 ([#4](https://github.com/RedOctober7/prospect-agent/pull/4)).
-- **UI:** light/dark theme with WCAG AA contrast, new fonts, the research
-  trace, hostname source links, the elapsed counter, a better mobile
-  layout, README screenshots, and the `AGENTS.md`/`CLAUDE.md` files
-  `next dev` writes ([#5](https://github.com/RedOctober7/prospect-agent/pull/5)).
-  Long target roles wrap in the signals table
-  ([#9](https://github.com/RedOctober7/prospect-agent/pull/9)).
-- **Deploy fixes:** `prisma generate` runs in the build, which fixed the
-  500 on Vercel ([#6](https://github.com/RedOctober7/prospect-agent/pull/6)).
-  Install scripts are approved via `allowScripts` for npm 12
-  ([#7](https://github.com/RedOctober7/prospect-agent/pull/7)).
-- **Sign-in:** a styled sign-in page with a session cookie and sign out,
-  replacing the browser's Basic Auth prompt
-  ([#8](https://github.com/RedOctober7/prospect-agent/pull/8)).
-- **Research quality**, tuned on real runs:
-  - The model gets today's date, so it stopped drafting on year-old news
-    as if it were fresh ([#9](https://github.com/RedOctober7/prospect-agent/pull/9)).
-  - Varied searches, the strongest trigger, one role, absolute dates
-    ([#10](https://github.com/RedOctober7/prospect-agent/pull/10)).
-  - Each search's outcome in the trace and the server logs
-    ([#11](https://github.com/RedOctober7/prospect-agent/pull/11)).
-  - Up to 5 searches, with repeats shown once
-    ([#12](https://github.com/RedOctober7/prospect-agent/pull/12)).
-  - Recency before trigger strength
-    ([#13](https://github.com/RedOctober7/prospect-agent/pull/13)).
-  - The switch to the basic web search tool, which made runs about 2.5×
-    faster ([#14](https://github.com/RedOctober7/prospect-agent/pull/14),
-    [#15](https://github.com/RedOctober7/prospect-agent/pull/15)).
-  - Openers no longer tell the reader what their own job has become
-    ([#15](https://github.com/RedOctober7/prospect-agent/pull/15)).
-- **Docs:** README brought up to date
-  ([#2](https://github.com/RedOctober7/prospect-agent/pull/2)).
-- **Docs + layout:** README rewritten to cover all of the above (how the
-  research works, sign-in, troubleshooting, new screenshots). In the
-  signals table, long source hostnames now wrap at a dot instead of
-  pushing the table past the page width, and the "· M failed" count
-  matches the collapsed search list
-  ([#16](https://github.com/RedOctober7/prospect-agent/pull/16)).
-- **Supabase keep-alive:** a Vercel Cron route reads the database three
-  times a day so the free-tier project is less likely to be paused, gated
-  by `CRON_SECRET` ([#17](https://github.com/RedOctober7/prospect-agent/pull/17)).
-- **Layout:** 16px between signals-table columns, so hostnames like
-  `globenewswire.com` fit on one line
-  ([#17](https://github.com/RedOctober7/prospect-agent/pull/17)).
+See [CHANGELOG.md](CHANGELOG.md): the notable changes since June 2026,
+with links to the pull requests.

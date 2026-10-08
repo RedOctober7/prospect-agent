@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { researchAndDraft } from "@/lib/research";
+import { publicErrorMessage, researchAndDraft } from "@/lib/research";
 import { prisma } from "@/lib/prisma";
 
 // Prisma + the Anthropic SDK need the Node.js runtime, not edge.
@@ -39,7 +39,8 @@ export async function POST(req: Request) {
     // Searches aren't persisted — they're the trace for this fresh draft only.
     return NextResponse.json({ ...saved, searches: draft.searches });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Draft failed.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    // Full error (with the model's raw reply, if any) to the server log only.
+    console.error(err);
+    return NextResponse.json({ error: publicErrorMessage(err, "Draft failed.") }, { status: 500 });
   }
 }

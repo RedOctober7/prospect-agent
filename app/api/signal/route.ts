@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { researchSignal } from "@/lib/research";
+import { publicErrorMessage, researchSignal } from "@/lib/research";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -22,7 +22,8 @@ export async function POST(req: Request) {
     const signal = await researchSignal(company.trim(), site);
     return NextResponse.json(signal);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Research failed.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    // Full error (with the model's raw reply, if any) to the server log only.
+    console.error(err);
+    return NextResponse.json({ error: publicErrorMessage(err, "Research failed.") }, { status: 500 });
   }
 }
